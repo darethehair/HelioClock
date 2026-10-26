@@ -2613,7 +2613,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 fontWeight={isDesktop ? 'normal' : isMobileLandscape && isFullscreen ? 'bold' : 'normal'}
                 className="skymap-moon-label select-none pointer-events-none"
               >
-                Moon ({Math.round(ephemeris.moon.illuminationFraction * 100)}%)
+                Moon ({Math.min(100, Math.max(0, Math.round(ephemeris.moon.illuminationFraction * 100)))}%)
               </text>
             </g>
           )}
@@ -2952,7 +2952,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 <Moon className="w-3.5 h-3.5 text-slate-300" />
                 <span className="text-slate-500">Moon:</span>
                 <span className="text-white font-bold">
-                  {ephemeris.moon.phaseName} ({Math.round(ephemeris.moon.illuminationFraction * 100)}%) · Alt {ephemeris.moon.altitude >= 0 ? '+' : ''}{ephemeris.moon.altitude.toFixed(1)}°
+                  {ephemeris.moon.phaseName} ({Math.min(100, Math.max(0, Math.round(ephemeris.moon.illuminationFraction * 100)))}%) · Alt {ephemeris.moon.altitude >= 0 ? '+' : ''}{ephemeris.moon.altitude.toFixed(1)}°
                 </span>
               </div>
 

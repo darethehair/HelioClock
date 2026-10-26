@@ -29,6 +29,13 @@ export const MoonPhaseCard: React.FC<MoonPhaseCardProps> = ({
     return calculateDetailedMoonPhase(currentDate, latitude, longitude);
   }, [currentDate, latitude, longitude]);
 
+  // True sunlit fraction percent with strict boundary clamp [0, 100]
+  const illumination = metrics.illumination ?? metrics.illuminationFraction;
+  let calculatedPercent = illumination * 100;
+  calculatedPercent = Math.min(100, Math.max(0, calculatedPercent));
+  const illuminationPercentText = `${calculatedPercent.toFixed(1)}%`;
+
+
   // Dynamically calculate maximized canvas bounds in fullscreen mode (85vh - 90vh)
   useEffect(() => {
     if (!isFullscreen) return;
@@ -253,7 +260,7 @@ export const MoonPhaseCard: React.FC<MoonPhaseCardProps> = ({
               <span className="text-slate-700 hidden sm:inline">·</span>
               <div className="flex items-center gap-1">
                 <span className="text-slate-500">Illum:</span>
-                <span className="text-emerald-400">{metrics.illuminationPct.toFixed(1)}%</span>
+                <span className="text-emerald-400">{illuminationPercentText}</span>
               </div>
               <span className="text-slate-700 hidden sm:inline">·</span>
               <div className="flex items-center gap-1">
@@ -298,7 +305,7 @@ export const MoonPhaseCard: React.FC<MoonPhaseCardProps> = ({
             </div>
             <div className="flex items-center justify-between text-[11px] font-mono text-slate-700 px-0.5 font-medium">
               <span>Illum:</span>
-              <span className="font-bold text-indigo-900">{metrics.illuminationPct.toFixed(1)}%</span>
+              <span className="font-bold text-indigo-900">{illuminationPercentText}</span>
             </div>
           </div>
         </div>

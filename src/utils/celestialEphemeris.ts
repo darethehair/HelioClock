@@ -283,7 +283,9 @@ function getMoonEquatorial(jd: number): { ra: number; dec: number; illumination:
 
   // Illumination fraction (phase)
   const phaseAngle = Math.abs(180 - D);
-  const illumination = (1 + Math.cos(phaseAngle * DEG2RAD)) / 2;
+  let calculatedPercent = ((1 + Math.cos(phaseAngle * DEG2RAD)) / 2) * 100;
+  calculatedPercent = Math.min(100, Math.max(0, calculatedPercent));
+  const illumination = calculatedPercent / 100;
 
   let phaseName = 'New Moon';
   if (D < 22.5 || D >= 337.5) phaseName = 'New Moon';
@@ -653,6 +655,7 @@ export interface DetailedMoonMetrics {
   phaseName: string;
   illuminationPct: number;
   illuminationFraction: number;
+  illumination: number; // True sunlit fraction [0, 1]
   lunarAgeDays: number;
   lunarAgeHours: number;
   lunarAgeMinutes: number;
@@ -730,20 +733,20 @@ export function calculateDetailedMoonPhase(
   const raMoonRad = Math.atan2(yMoon, xMoon);
   const raMoonDeg = ((raMoonRad * RAD2DEG) % 360 + 360) % 360;
 
-  // 3. Phase angle i & Illumination
-  const cosPhase = Math.cos(latMoonRad) * Math.cos((lonMoon - lambdaSun) * DEG2RAD);
-  const phaseAngleRad = Math.acos(Math.max(-1, Math.min(1, cosPhase)));
-  const illuminationFraction = (1 + Math.cos(phaseAngleRad)) / 2;
-  const illuminationPct = Math.min(100, Math.max(0, illuminationFraction * 100));
-
-  // 4. Synodic Lunar Age
+  // 3. Synodic Lunar Age
   const SYNODIC_MONTH = 29.53058867;
-  const totalAgeDays = (D / 360) * SYNODIC_MONTH;
-  const lunarAgeDays = Math.floor(totalAgeDays);
-  const remHours = (totalAgeDays - lunarAgeDays) * 24;
+  const moonAge = (D / 360) * SYNODIC_MONTH;
+  const lunarAgeDays = Math.floor(moonAge);
+  const remHours = (moonAge - lunarAgeDays) * 24;
   const lunarAgeHours = Math.floor(remHours);
   const lunarAgeMinutes = Math.floor((remHours - lunarAgeHours) * 60);
   const lunarAgeText = `${lunarAgeDays}d ${lunarAgeHours}h ${lunarAgeMinutes}m`;
+
+  // 4. Foolproof Illumination Math derived directly from working lunar age
+  let calculatedPercent = ((1 - Math.cos((moonAge / 29.53) * 2 * Math.PI)) / 2) * 100;
+  calculatedPercent = Math.min(100, Math.max(0, calculatedPercent));
+  const illuminationPct = calculatedPercent;
+  const illuminationFraction = calculatedPercent / 100;
 
   // 5. Phase Name
   let phaseName = 'New Moon';
@@ -791,6 +794,7 @@ export function calculateDetailedMoonPhase(
     phaseName,
     illuminationPct,
     illuminationFraction,
+    illumination: illuminationFraction,
     lunarAgeDays,
     lunarAgeHours,
     lunarAgeMinutes,
