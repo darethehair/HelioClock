@@ -1,0 +1,428 @@
+@import "tailwindcss";
+
+/* Full-Window Override for Native Fullscreen Mode */
+:fullscreen,
+:-webkit-full-screen,
+.is-fullscreen-active {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background-color: #000000 !important;
+  overflow-x: hidden !important;
+}
+
+:fullscreen body,
+:-webkit-full-screen body,
+.is-fullscreen-active body {
+  width: 100% !important;
+  min-height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background-color: #000000 !important;
+}
+
+/* Wide-screen default visibility rules for Dual Month Labels */
+.chart-month-desktop {
+  display: inline;
+}
+.chart-month-mobile {
+  display: none;
+}
+
+/* Mobile Responsive Override for Astronomical Charts (< 600px) */
+@media (max-width: 600px) {
+  /* Force 14px Bold Text: Left Y-axis (Day Hours), Right Y-axis (Daylight Hours), and bottom X-axis (Months) */
+  .chart-left-y-label,
+  .chart-right-y-label,
+  .chart-month-label {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  /* Left and Right Y-Axis Titles */
+  .chart-axis-title {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.04em !important;
+  }
+
+  /* Interactive Legend Typography & Keys: minimum 14px bold */
+  .chart-legend-text,
+  .chart-legend-text span,
+  .chart-header-text {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    line-height: 1.4 !important;
+  }
+
+  /* Interactive Pop-up Chart Hover Tooltips: minimum 14px bold */
+  .chart-tooltip-text {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+  }
+
+  .chart-tooltip-title {
+    font-size: 15px !important;
+    font-weight: 700 !important;
+  }
+
+  .chart-tooltip-duration {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+  }
+
+  /* Interactive Date Scrubber Handle Pill Text */
+  .chart-drag-handle-text {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+  }
+
+  /* Shorten Month Labels on Mobile: display clean 3-letter abbreviations (Jan, Feb, Mar, etc.) */
+  .chart-month-desktop {
+    display: none !important;
+  }
+
+  .chart-month-mobile {
+    display: inline !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+  }
+}
+
+/* Responsive Landscape Scaling & Two-Column Grid Optimization */
+@media (orientation: landscape) {
+  /* Side-by-side two-column grid: Solar Graph on Left, Interactive World Map on Right */
+  .landscape-dual-grid {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) !important;
+    gap: 1.25rem !important;
+    align-items: start !important;
+    width: 100% !important;
+  }
+
+  .landscape-dual-grid > #graph,
+  .landscape-dual-grid > #world-map {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    width: 100% !important;
+  }
+
+  /* Fullscreen Edge-to-Edge Container in Landscape */
+  .is-fullscreen-active .landscape-fullscreen-pad {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+}
+
+/* Mobile & Handheld Landscape Typography Boost (< 1024px) */
+@media (orientation: landscape) and (max-width: 1023px) {
+  .chart-left-y-label,
+  .chart-right-y-label,
+  .chart-month-label {
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .chart-axis-title {
+    font-size: 13.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.05em !important;
+  }
+
+  .chart-legend-text {
+    font-size: 13.5px !important;
+    font-weight: 700 !important;
+    line-height: 1.4 !important;
+  }
+
+  .chart-tooltip-text {
+    font-size: 14.5px !important;
+    font-weight: 600 !important;
+  }
+
+  .chart-tooltip-title {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+  }
+
+  .chart-tooltip-duration {
+    font-size: 17px !important;
+    font-weight: 700 !important;
+  }
+}
+
+/* Scoped Individual Component Fullscreen Rules */
+:fullscreen.fullscreen-module-card,
+:-webkit-full-screen.fullscreen-module-card,
+.fullscreen-module-active {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background-color: #000000 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+  padding: 0.75rem 1rem !important;
+}
+
+/* Mobile Edge-to-Edge Override for World Map Individual Fullscreen (< 600px) */
+@media (max-width: 600px) {
+  :fullscreen.world-map-fullscreen,
+  :-webkit-full-screen.world-map-fullscreen,
+  .world-map-fullscreen.fullscreen-module-active {
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #000000 !important;
+    background-color: #000000 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow-x: hidden !important;
+  }
+
+  .world-map-fullscreen.fullscreen-module-active .fullscreen-map-viewport,
+  :fullscreen.world-map-fullscreen .fullscreen-map-viewport,
+  :-webkit-full-screen.world-map-fullscreen .fullscreen-map-viewport {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  .world-map-fullscreen.fullscreen-module-active canvas,
+  .world-map-fullscreen.fullscreen-module-active svg,
+  :fullscreen.world-map-fullscreen canvas,
+  :fullscreen.world-map-fullscreen svg,
+  :-webkit-full-screen.world-map-fullscreen canvas,
+  :-webkit-full-screen.world-map-fullscreen svg {
+    width: 100vw !important;
+    max-width: 100vw !important;
+  }
+}
+
+/* In Landscape orientation when an isolated component is in fullscreen */
+@media (orientation: landscape) {
+  :fullscreen.fullscreen-module-card,
+  :-webkit-full-screen.fullscreen-module-card,
+  .fullscreen-module-active {
+    padding: 0.5rem 0.85rem !important;
+  }
+
+  /* When SolarYearChart is isolated in landscape fullscreen, expand SVG gracefully */
+  .fullscreen-module-active svg {
+    max-height: calc(100vh - 120px) !important;
+  }
+
+  /* When WorldSolarMap is isolated in landscape fullscreen, expand viewport */
+  .fullscreen-module-active .fullscreen-map-viewport {
+    height: calc(100vh - 120px) !important;
+    min-height: 280px !important;
+  }
+
+  /* When EquirectangularSkyMap is isolated in landscape fullscreen, expand viewport */
+  .fullscreen-module-active .skymap-viewport {
+    height: calc(100vh - 100px) !important;
+    min-height: 260px !important;
+  }
+}
+
+/* Mobile Edge-to-Edge Override for Sky Observatory Individual Fullscreen (< 600px) */
+@media (max-width: 600px) {
+  :fullscreen.skymap-fullscreen,
+  :-webkit-full-screen.skymap-fullscreen,
+  .skymap-fullscreen.fullscreen-module-active {
+    padding: 0.25rem !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: #000000 !important;
+    background-color: #000000 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow-x: hidden !important;
+  }
+
+  .skymap-fullscreen.fullscreen-module-active .skymap-viewport,
+  :fullscreen.skymap-fullscreen .skymap-viewport,
+  :-webkit-full-screen.skymap-fullscreen .skymap-viewport {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    flex: 1 1 0% !important;
+  }
+}
+
+/* ========================================================================== */
+/* DIRECT SKY MAP ELEMENTS STYLE RULES (UNCONDITIONAL INJECTION)              */
+/* ========================================================================== */
+/* Star, planet, and celestial labels: sharp 9px on desktop, 14px on mobile */
+.skymap-star-label,
+.skymap-planet-label,
+.skymap-moon-label,
+.skymap-sun-label,
+.skymap-cardinal-label,
+.skymap-alt-label,
+.skymap-axis-label,
+.skymap-horizon-badge-text,
+.skymap-orrery-label,
+.skymap-orrery-scale-text,
+.skymap-fullscreen .skymap-star-label,
+.skymap-fullscreen .skymap-planet-label,
+.fullscreen-module-active .skymap-star-label,
+.fullscreen-module-active .skymap-planet-label,
+:fullscreen .skymap-star-label,
+:fullscreen .skymap-planet-label {
+  font-family: sans-serif !important;
+  font-size: 9px !important;
+  font-weight: 400 !important;
+  fill: #d1d5db !important;
+  color: #d1d5db !important;
+  filter: none !important;
+  text-shadow: none !important;
+  letter-spacing: 0.015em !important;
+}
+
+@media (max-width: 1024px) {
+  .skymap-star-label,
+  .skymap-planet-label,
+  .skymap-moon-label,
+  .skymap-sun-label,
+  .skymap-cardinal-label,
+  .skymap-alt-label,
+  .skymap-axis-label,
+  .skymap-orrery-label {
+    font-size: 14px !important;
+  }
+}
+
+/* Grid background lines and path lines: stroke-width 0.5px with 0.25 opacity */
+.skymap-grid-line,
+.skymap-path-line,
+.skymap-altitude-ring,
+.skymap-azimuth-spoke,
+.skymap-orbit-line,
+.skymap-notch-line,
+.skymap-fullscreen .skymap-grid-line,
+.skymap-fullscreen .skymap-path-line,
+.fullscreen-module-active .skymap-grid-line,
+.fullscreen-module-active .skymap-path-line,
+:fullscreen .skymap-grid-line,
+:fullscreen .skymap-path-line {
+  stroke-width: 0.5px !important;
+  opacity: 0.25 !important;
+  stroke-opacity: 0.25 !important;
+}
+
+/* Sun Diurnal Trajectory: Crisp Orange Dotted Arc above 0° Horizon */
+.skymap-path-sun {
+  stroke: #f59e0b !important;
+  stroke-width: 1px !important;
+  stroke-dasharray: 4 4 !important;
+  opacity: 0.75 !important;
+  stroke-opacity: 0.75 !important;
+}
+
+/* Moon Diurnal Trajectory: Crisp White Dotted Arc above 0° Horizon */
+.skymap-path-moon {
+  stroke: #f8fafc !important;
+  stroke-width: 1px !important;
+  stroke-dasharray: 4 4 !important;
+  opacity: 0.65 !important;
+  stroke-opacity: 0.65 !important;
+}
+
+/* Dynamic Planet Paths: Faint 1px Dashed Line Pattern with 20% Opacity */
+.skymap-path-planet {
+  stroke-width: 1px !important;
+  stroke-dasharray: 3 3 !important;
+  opacity: 0.20 !important;
+  stroke-opacity: 0.20 !important;
+}
+
+/* Telemetry, HUD, and card metrics at clean, un-bolded 11px */
+.skymap-hud-text,
+.skymap-telemetry-text,
+.skymap-control-label,
+.skymap-orrery-metrics,
+.skymap-orrery-metrics span {
+  font-size: 11px !important;
+  font-weight: 400 !important;
+}
+
+/* Proportional fullscreen bounds */
+.skymap-fullscreen.fullscreen-module-active,
+:fullscreen.skymap-fullscreen,
+:-webkit-full-screen.skymap-fullscreen {
+  padding: 1rem 1.5rem !important;
+}
+
+.fullscreen-module-active .skymap-viewport,
+:fullscreen.skymap-fullscreen .skymap-viewport,
+:-webkit-full-screen.skymap-fullscreen .skymap-viewport {
+  max-height: calc(100vh - 120px) !important;
+}
+
+/* Moon Ephemeris Fullscreen Responsive Layout */
+.moon-fullscreen-container {
+  padding: 0 !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background-color: #020617 !important;
+  overflow: hidden !important;
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 99999 !important;
+}
+
+.moon-fullscreen-center {
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.moon-fullscreen-bottom-row {
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0.35rem 0.5rem !important;
+  font-size: 9px !important;
+  font-weight: 400 !important;
+  background-color: rgba(2, 6, 23, 0.95) !important;
+  border-top: 1px solid rgba(30, 41, 59, 0.7) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  z-index: 30 !important;
+}
+
+
+
+
+
+

@@ -1,0 +1,10 @@
+{
+  "name": "HelioClock - Astronomical Solar Clock",
+  "description": "Native Android astronomical solar clock PWA with live GPS sensors, dynamic 365-day daylight curves, twilight phases, and real-time sun tracker.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
