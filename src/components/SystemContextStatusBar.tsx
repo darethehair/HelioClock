@@ -26,12 +26,10 @@ export const SystemContextStatusBar: React.FC<SystemContextStatusBarProps> = ({
     year: 'numeric',
   });
 
-  // 2. Simulation Time: Displaying active wall-clock hour and minute (e.g., "07:29 AM")
-  const formattedTime = currentDate.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
+  // 2. Simulation Time: Displaying active wall-clock hour and minute in 24-hour format (e.g., "07:30" or "16:51")
+  const hours = currentDate.getHours().toString().padStart(2, '0');
+  const minutes = currentDate.getMinutes().toString().padStart(2, '0');
+  const formattedTime = `${hours}:${minutes}`;
 
   // 3. Active Location: Displaying exact center coordinates (e.g., "Location: 49.19° N, 98.10° W")
   const latDir = latitude >= 0 ? 'N' : 'S';
