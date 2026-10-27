@@ -51,7 +51,7 @@ jobs:
           test -f dist/manifest.webmanifest
           test -f dist/sw.js
           grep -q '/helioclock/' dist/index.html
-          node -e "const m=require('./dist/manifest.webmanifest'); if(m.start_url !== '/helioclock/' || m.scope !== '/helioclock/') process.exit(1)"
+          node -e "const m=JSON.parse(require('fs').readFileSync('dist/manifest.webmanifest','utf8')); if(m.start_url !== '/helioclock/' || m.scope !== '/helioclock/') process.exit(1)"
 
       - name: Create deployment ZIP
         run: |
