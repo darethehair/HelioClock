@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Sun, Sparkles, Maximize2, Minimize2 } from 'lucide-react';
 import { useGeolocation } from './hooks/useGeolocation';
 import { LocationBanner } from './components/LocationBanner';
+import { SystemContextStatusBar } from './components/SystemContextStatusBar';
 import { DashboardCards } from './components/DashboardCards';
 import { SolarYearChart } from './components/SolarYearChart';
 import { WorldSolarMap } from './components/WorldSolarMap';
@@ -309,7 +310,17 @@ export default function App() {
         }`}
       >
         {/* Dashboard Display Section with isolated soft light-blue card surfaces */}
-        <section id="dashboard" className="space-y-2">
+        <section id="dashboard" className="space-y-3">
+          {/* Centralized Top-Level System Context Status Bar */}
+          <SystemContextStatusBar
+            currentDate={currentDate}
+            latitude={currentLatitude}
+            longitude={currentLongitude}
+            utcOffsetHours={geo.utcOffsetHours}
+            isLiveTrack={isLiveTrack}
+            isCustomCoordinates={isCustomCoordinates}
+          />
+
           <div className="flex items-center justify-between text-xs font-mono text-slate-400 px-1">
             <span className="text-slate-300 font-semibold tracking-wider uppercase text-[11px]">
               Today's Solar & Lunar Ephemeris

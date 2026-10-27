@@ -426,3 +426,12 @@
 
 
 
+
+/* System Context Status Bar: 11px desktop un-bolded standard, expanding to bold 14px on portrait mobile */
+@media (max-width: 639px) and (orientation: portrait) {
+  .system-context-status-bar .system-status-item,
+  .system-context-status-bar .system-status-item span {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+  }
+}
