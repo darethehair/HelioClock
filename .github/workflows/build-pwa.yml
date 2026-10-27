@@ -1,0 +1,67 @@
+name: Build standalone HelioClock PWA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prepare standalone build (runner only)
+        shell: bash
+        run: |
+          npm pkg set 'devDependencies.esbuild=^0.28.0'
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("vite.config.ts")
+          s = p.read_text()
+          assert "return {" in s
+          s = s.replace("return {", "return {\n    base: '/helioclock/',", 1)
+          for old, new in [
+              ("id: '/'", "id: '/helioclock/'"),
+              ("start_url: '/'", "start_url: '/helioclock/'"),
+              ("scope: '/'", "scope: '/helioclock/'"),
+              ("src: '/pwa-", "src: 'pwa-"),
+          ]:
+              s = s.replace(old, new)
+          p.write_text(s)
+          PY
+
+      - name: Install packages
+        run: npm install --no-audit --no-fund --package-lock=false
+
+      - name: Build PWA
+        run: npm run build
+
+      - name: Check deployable files
+        shell: bash
+        run: |
+          test -f dist/index.html
+          test -f dist/manifest.webmanifest
+          test -f dist/sw.js
+          grep -q '/helioclock/' dist/index.html
+          node -e "const m=require('./dist/manifest.webmanifest'); if(m.start_url !== '/helioclock/' || m.scope !== '/helioclock/') process.exit(1)"
+
+      - name: Create deployment ZIP
+        run: |
+          cd dist
+          zip -qr ../HelioClock-PWA.zip .
+
+      - name: Upload downloadable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: HelioClock-PWA
+          path: HelioClock-PWA.zip
+          if-no-files-found: error
+          retention-days: 30
