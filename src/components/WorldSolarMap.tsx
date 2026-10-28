@@ -7,14 +7,8 @@ import { Globe, Sun, Moon, MapPin, Compass, Play, Pause, RotateCcw, Sparkles, Mo
 import { calculateSubsolarPoint } from '../utils/solarCalculator';
 import { useElementFullscreen } from '../hooks/useElementFullscreen';
 import { useClickRing } from '../hooks/useClickRing';
-import earthMap2kSrc from '../assets/images/earth_map_2k.jpg';
-import earthMap8kSrc from '../assets/images/earth_map_8k.jpg';
-
-// Texture pathways for dynamic resolution swapping (2K baseline & 8K HD)
-export const EARTH_2K_LOCAL_URL = '/earth_map_2k.jpg';
-export const EARTH_8K_PRIMARY_URL = 'https://upload.wikimedia.org/wikipedia/commons/0/04/Solarsystemscope_texture_8k_earth_daymap.jpg';
-export const EARTH_8K_LOCAL_URL = '/earth_map_8k.jpg';
-export const EARTH_8K_FALLBACK_URL = '/earth_physical_map_8k.jpg';
+// Unified World Map Asset Target: singular physical map texture
+export const EARTH_MAP_URL = '/earth_physical_map.jpg';
 
 export interface EarthTextureCache {
   data: Uint8ClampedArray;
@@ -57,72 +51,9 @@ function pinTextureToGPU(imageSource: HTMLImageElement | HTMLCanvasElement): boo
   }
 }
 
-function loadTextureFromSources(
-  sources: string[],
-  fallbackW: number,
-  fallbackH: number,
-  isHd: boolean,
-  callback: (cache: EarthTextureCache | null) => void
-) {
-  let currentIdx = 0;
-
-  const tryNext = () => {
-    if (currentIdx >= sources.length) {
-      callback(null);
-      return;
-    }
-
-    const src = sources[currentIdx++];
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = src;
-
-    img.onload = () => {
-      try {
-        const w = img.naturalWidth || fallbackW;
-        const h = img.naturalHeight || fallbackH;
-
-        // 1. Hardware GPU texture pinning via WebGL pipeline
-        const gpuPinned = pinTextureToGPU(img);
-
-        // 2. Hardware-accelerated canvas decoding with willReadFrequently
-        const offCanvas = document.createElement('canvas');
-        offCanvas.width = w;
-        offCanvas.height = h;
-        const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
-        if (!offCtx) {
-          tryNext();
-          return;
-        }
-
-        offCtx.drawImage(img, 0, 0, w, h);
-        const imgData = offCtx.getImageData(0, 0, w, h);
-        const data32 = new Uint32Array(imgData.data.buffer);
-
-        const cache: EarthTextureCache = {
-          data: imgData.data,
-          data32,
-          width: w,
-          height: h,
-          gpuPinned,
-          isHd,
-        };
-        callback(cache);
-      } catch {
-        tryNext();
-      }
-    };
-
-    img.onerror = () => {
-      tryNext();
-    };
-  };
-
-  tryNext();
-}
-
 /**
- * Pre-loads and pins either the default 2K baseline or the ultra-sharp 8K texture.
+ * Pre-loads and pins the unified 'earth_physical_map.jpg' asset into hardware graphics processor
+ * texture memory, dynamically generating either the optimized 2K baseline or full 8K buffer.
  */
 export async function loadAndPinEarthTexture(isHd: boolean): Promise<EarthTextureCache | null> {
   if (isHd) {
@@ -130,17 +61,52 @@ export async function loadAndPinEarthTexture(isHd: boolean): Promise<EarthTextur
     if (loadPromise8K) return loadPromise8K;
 
     loadPromise8K = new Promise<EarthTextureCache | null>((resolve) => {
-      const sources = [
-        EARTH_8K_LOCAL_URL,
-        earthMap8kSrc,
-        EARTH_8K_FALLBACK_URL,
-        EARTH_8K_PRIMARY_URL,
-      ];
-      loadTextureFromSources(sources, 8192, 4096, true, (cache) => {
-        if (cache) globalTextureCache8K = cache;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = EARTH_MAP_URL;
+
+      img.onload = () => {
+        try {
+          const w = img.naturalWidth || 8192;
+          const h = img.naturalHeight || 4096;
+
+          const gpuPinned = pinTextureToGPU(img);
+
+          const offCanvas = document.createElement('canvas');
+          offCanvas.width = w;
+          offCanvas.height = h;
+          const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
+          if (!offCtx) {
+            loadPromise8K = null;
+            resolve(null);
+            return;
+          }
+
+          offCtx.drawImage(img, 0, 0, w, h);
+          const imgData = offCtx.getImageData(0, 0, w, h);
+          const data32 = new Uint32Array(imgData.data.buffer);
+
+          const cache: EarthTextureCache = {
+            data: imgData.data,
+            data32,
+            width: w,
+            height: h,
+            gpuPinned,
+            isHd: true,
+          };
+          globalTextureCache8K = cache;
+          loadPromise8K = null;
+          resolve(cache);
+        } catch {
+          loadPromise8K = null;
+          resolve(null);
+        }
+      };
+
+      img.onerror = () => {
         loadPromise8K = null;
-        resolve(cache);
-      });
+        resolve(null);
+      };
     });
     return loadPromise8K;
   } else {
@@ -148,15 +114,53 @@ export async function loadAndPinEarthTexture(isHd: boolean): Promise<EarthTextur
     if (loadPromise2K) return loadPromise2K;
 
     loadPromise2K = new Promise<EarthTextureCache | null>((resolve) => {
-      const sources = [
-        EARTH_2K_LOCAL_URL,
-        earthMap2kSrc,
-      ];
-      loadTextureFromSources(sources, 2048, 1024, false, (cache) => {
-        if (cache) globalTextureCache2K = cache;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = EARTH_MAP_URL;
+
+      img.onload = () => {
+        try {
+          // Downscale to 2048x1024 for baseline performance & minimal memory
+          const w = 2048;
+          const h = 1024;
+
+          const gpuPinned = pinTextureToGPU(img);
+
+          const offCanvas = document.createElement('canvas');
+          offCanvas.width = w;
+          offCanvas.height = h;
+          const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
+          if (!offCtx) {
+            loadPromise2K = null;
+            resolve(null);
+            return;
+          }
+
+          offCtx.drawImage(img, 0, 0, w, h);
+          const imgData = offCtx.getImageData(0, 0, w, h);
+          const data32 = new Uint32Array(imgData.data.buffer);
+
+          const cache: EarthTextureCache = {
+            data: imgData.data,
+            data32,
+            width: w,
+            height: h,
+            gpuPinned,
+            isHd: false,
+          };
+          globalTextureCache2K = cache;
+          loadPromise2K = null;
+          resolve(cache);
+        } catch {
+          loadPromise2K = null;
+          resolve(null);
+        }
+      };
+
+      img.onerror = () => {
         loadPromise2K = null;
-        resolve(cache);
-      });
+        resolve(null);
+      };
     });
     return loadPromise2K;
   }
