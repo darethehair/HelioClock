@@ -45,6 +45,7 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,jpg,jpeg,webp}'],
           runtimeCaching: [
             {
@@ -54,6 +55,20 @@ export default defineConfig(() => {
                 cacheName: 'google-fonts-cache',
                 expiration: {
                   maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/upload\.wikimedia\.org\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'earth-8k-texture-cache',
+                expiration: {
+                  maxEntries: 5,
                   maxAgeSeconds: 60 * 60 * 24 * 365,
                 },
                 cacheableResponse: {
@@ -71,7 +86,7 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     server: {
