@@ -2,14 +2,14 @@
 HelioClock ☀️🌙🪐
 
 HelioClock is a high-precision, real-time astronomical situation-awareness dashboard and orbital simulator. Designed explicitly to bridge pure planetary physics with your true wall-clock experience, the application operates with zero platform dependencies, running at a fluid 60 FPS on mobile and desktop platforms alike.
-Optimized for Morden, Manitoba (98.1° W) and mathematically locked to its unique permanent Daylight Saving Time alignment (UTC-5), HelioClock synchronizes active hardware sensors with global celestial mechanics to map out the cosmic dance directly over your local horizon.
+Featuring seamless local support for Morden, Manitoba (98.1° W) and locations worldwide, HelioClock calculates the timezone offset dynamically based on real-time GPS location coordinates and the device's native system clock. This dynamically handles variable offsets, enabling precise local tracking (including permanent or active regional Daylight Saving Time changes) automatically without hardcoding any values, synchronizing active hardware sensors with global celestial mechanics to map out the cosmic dance directly over your local horizon.
 
 🚀 Core Features
 
 
 1. Daylight Core & Solar Ephemeris Graph
 
-• Permanent DST Alignment: Calibrated precisely for a permanent UTC-5 shift, ensuring the year-round solar noon peak strikes exactly at 13:17 local wall-clock time.
+• Dynamic GPS Timezone Calibration: Calculates the timezone offset dynamically based on real-time GPS location coordinates and the device's native system clock. Automatically handles variable offsets and seasonal or regional Daylight Saving Time changes without hardcoding any values, accurately tracking local solar noon and ephemeris transitions anywhere on Earth.
 • Daylight Delta: Displays a real-time, day-over-day rate of change indicator (e.g., tracking the rapid -3m 34s loss of daylight during seasonal transitions).
 • Option B Interactive Date-Scrubbing: Drag the vertical "Today" indicator line horizontally across the 365-day calendar line chart to dynamically warp the entire application's date parameters across past, present, or future configurations.
 • Astronomical Milestones: Subtle, high-contrast markers plotting the exact calendar positions for the Summer Solstice, Winter Solstice, Vernal Equinox, and Autumnal Equinox with detailed hover tooltips.
