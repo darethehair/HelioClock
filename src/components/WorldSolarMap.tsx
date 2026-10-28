@@ -7,12 +7,14 @@ import { Globe, Sun, Moon, MapPin, Compass, Play, Pause, RotateCcw, Sparkles, Mo
 import { calculateSubsolarPoint } from '../utils/solarCalculator';
 import { useElementFullscreen } from '../hooks/useElementFullscreen';
 import { useClickRing } from '../hooks/useClickRing';
-import earthPhysicalMapSrc from '../assets/images/earth_physical_map_8k.jpg';
+import earthMap2kSrc from '../assets/images/earth_map_2k.jpg';
+import earthMap8kSrc from '../assets/images/earth_map_8k.jpg';
 
-// High-definition 8K (8192 × 4096) equirectangular daymap texture pathways
+// Texture pathways for dynamic resolution swapping (2K baseline & 8K HD)
+export const EARTH_2K_LOCAL_URL = '/earth_map_2k.jpg';
 export const EARTH_8K_PRIMARY_URL = 'https://upload.wikimedia.org/wikipedia/commons/0/04/Solarsystemscope_texture_8k_earth_daymap.jpg';
-export const EARTH_8K_LOCAL_URL = '/earth_physical_map_8k.jpg';
-export const EARTH_8K_PUBLIC_URL = '/earth_physical_map.jpg';
+export const EARTH_8K_LOCAL_URL = '/earth_map_8k.jpg';
+export const EARTH_8K_FALLBACK_URL = '/earth_physical_map_8k.jpg';
 
 export interface EarthTextureCache {
   data: Uint8ClampedArray;
@@ -20,14 +22,17 @@ export interface EarthTextureCache {
   width: number;
   height: number;
   gpuPinned: boolean;
+  isHd: boolean;
 }
 
-let globalEarthTextureCache: EarthTextureCache | null = null;
-let globalTextureLoadPromise: Promise<EarthTextureCache | null> | null = null;
+let globalTextureCache2K: EarthTextureCache | null = null;
+let globalTextureCache8K: EarthTextureCache | null = null;
+let loadPromise2K: Promise<EarthTextureCache | null> | null = null;
+let loadPromise8K: Promise<EarthTextureCache | null> | null = null;
 
 /**
  * Standard WebGL texture pinning:
- * Pre-loads and uploads the 8K equirectangular asset directly into hardware graphics processor
+ * Pre-loads and uploads the map asset directly into hardware graphics processor
  * texture memory at bootup, ensuring buttery smooth 60 FPS rotation and panning without stutters.
  */
 function pinTextureToGPU(imageSource: HTMLImageElement | HTMLCanvasElement): boolean {
@@ -52,85 +57,121 @@ function pinTextureToGPU(imageSource: HTMLImageElement | HTMLCanvasElement): boo
   }
 }
 
-/**
- * Pre-loads and pins the 8K equirectangular daymap texture into hardware graphics memory right at bootup.
- */
-export async function loadAndPin8KEarthTexture(): Promise<EarthTextureCache | null> {
-  if (globalEarthTextureCache) return globalEarthTextureCache;
-  if (globalTextureLoadPromise) return globalTextureLoadPromise;
+function loadTextureFromSources(
+  sources: string[],
+  fallbackW: number,
+  fallbackH: number,
+  isHd: boolean,
+  callback: (cache: EarthTextureCache | null) => void
+) {
+  let currentIdx = 0;
 
-  globalTextureLoadPromise = new Promise<EarthTextureCache | null>((resolve) => {
-    const sources = [
-      EARTH_8K_PRIMARY_URL,
-      EARTH_8K_LOCAL_URL,
-      earthPhysicalMapSrc,
-      EARTH_8K_PUBLIC_URL,
-    ];
+  const tryNext = () => {
+    if (currentIdx >= sources.length) {
+      callback(null);
+      return;
+    }
 
-    let currentIdx = 0;
+    const src = sources[currentIdx++];
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = src;
 
-    const tryNext = () => {
-      if (currentIdx >= sources.length) {
-        resolve(null);
-        return;
-      }
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || fallbackW;
+        const h = img.naturalHeight || fallbackH;
 
-      const src = sources[currentIdx++];
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = src;
+        // 1. Hardware GPU texture pinning via WebGL pipeline
+        const gpuPinned = pinTextureToGPU(img);
 
-      img.onload = () => {
-        try {
-          const w = img.naturalWidth || 8192;
-          const h = img.naturalHeight || 4096;
-
-          // 1. Hardware GPU texture pinning via WebGL pipeline
-          const gpuPinned = pinTextureToGPU(img);
-
-          // 2. Hardware-accelerated canvas decoding with willReadFrequently
-          const offCanvas = document.createElement('canvas');
-          offCanvas.width = w;
-          offCanvas.height = h;
-          const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
-          if (!offCtx) {
-            tryNext();
-            return;
-          }
-
-          offCtx.drawImage(img, 0, 0, w, h);
-          const imgData = offCtx.getImageData(0, 0, w, h);
-          const data32 = new Uint32Array(imgData.data.buffer);
-
-          const cache: EarthTextureCache = {
-            data: imgData.data,
-            data32,
-            width: w,
-            height: h,
-            gpuPinned,
-          };
-
-          globalEarthTextureCache = cache;
-          resolve(cache);
-        } catch {
+        // 2. Hardware-accelerated canvas decoding with willReadFrequently
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = w;
+        offCanvas.height = h;
+        const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
+        if (!offCtx) {
           tryNext();
+          return;
         }
-      };
 
-      img.onerror = () => {
+        offCtx.drawImage(img, 0, 0, w, h);
+        const imgData = offCtx.getImageData(0, 0, w, h);
+        const data32 = new Uint32Array(imgData.data.buffer);
+
+        const cache: EarthTextureCache = {
+          data: imgData.data,
+          data32,
+          width: w,
+          height: h,
+          gpuPinned,
+          isHd,
+        };
+        callback(cache);
+      } catch {
         tryNext();
-      };
+      }
     };
 
-    tryNext();
-  });
+    img.onerror = () => {
+      tryNext();
+    };
+  };
 
-  return globalTextureLoadPromise;
+  tryNext();
 }
 
-// Initiate hardware texture caching right at bootup
+/**
+ * Pre-loads and pins either the default 2K baseline or the ultra-sharp 8K texture.
+ */
+export async function loadAndPinEarthTexture(isHd: boolean): Promise<EarthTextureCache | null> {
+  if (isHd) {
+    if (globalTextureCache8K) return globalTextureCache8K;
+    if (loadPromise8K) return loadPromise8K;
+
+    loadPromise8K = new Promise<EarthTextureCache | null>((resolve) => {
+      const sources = [
+        EARTH_8K_LOCAL_URL,
+        earthMap8kSrc,
+        EARTH_8K_FALLBACK_URL,
+        EARTH_8K_PRIMARY_URL,
+      ];
+      loadTextureFromSources(sources, 8192, 4096, true, (cache) => {
+        if (cache) globalTextureCache8K = cache;
+        loadPromise8K = null;
+        resolve(cache);
+      });
+    });
+    return loadPromise8K;
+  } else {
+    if (globalTextureCache2K) return globalTextureCache2K;
+    if (loadPromise2K) return loadPromise2K;
+
+    loadPromise2K = new Promise<EarthTextureCache | null>((resolve) => {
+      const sources = [
+        EARTH_2K_LOCAL_URL,
+        earthMap2kSrc,
+      ];
+      loadTextureFromSources(sources, 2048, 1024, false, (cache) => {
+        if (cache) globalTextureCache2K = cache;
+        loadPromise2K = null;
+        resolve(cache);
+      });
+    });
+    return loadPromise2K;
+  }
+}
+
+// Pre-load default 2K baseline right at bootup for instant 60 FPS loading
 if (typeof window !== 'undefined') {
-  loadAndPin8KEarthTexture().catch(() => {});
+  loadAndPinEarthTexture(false).catch(() => {});
+  try {
+    if (localStorage.getItem('helioclock_map_hd') === 'true') {
+      loadAndPinEarthTexture(true).catch(() => {});
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export type ProjectionType = 'equalEarth' | 'mercator' | 'orthographic';
@@ -253,6 +294,30 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
 
   // Projection mode selection
   const [projectionType, setProjectionType] = useState<ProjectionType>('equalEarth');
+
+  // High/Low resolution texture toggle (false = 2K baseline default, true = 8K ultra-sharp)
+  // Persisted in localStorage so choice remains across portrait/landscape and fullscreen
+  const [isHd, setIsHd] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem('helioclock_map_hd') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isLoadingHd, setIsLoadingHd] = useState<boolean>(false);
+
+  const toggleHdResolution = useCallback(() => {
+    setIsHd((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('helioclock_map_hd', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
 
 
   // Time offset scrubber for interactive solar shadow exploration (-12 to +12 hours)
@@ -528,25 +593,26 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
     setIsMapReady(true);
   }, [projection, projectionType, currentLatitude, currentLongitude, sphereOutline, width, height, globeRadius]);
 
-  // Load and cache raw 8K image texture with hardware GPU pinning
+  // Load and dynamically swap active texture (2K baseline or 8K HD)
   useEffect(() => {
     let isSubscribed = true;
 
-    if (rawImagePixelsRef.current) {
-      const { data, data32, width: srcW, height: srcH } = rawImagePixelsRef.current;
-      renderReprojection(data, data32, srcW, srcH);
+    // Check if the requested variant is already in memory
+    const activeCache = isHd ? globalTextureCache8K : globalTextureCache2K;
+    if (activeCache) {
+      rawImagePixelsRef.current = activeCache;
+      renderReprojection(activeCache.data, activeCache.data32, activeCache.width, activeCache.height);
       return;
     }
 
-    if (globalEarthTextureCache) {
-      rawImagePixelsRef.current = globalEarthTextureCache;
-      const { data, data32, width: srcW, height: srcH } = globalEarthTextureCache;
-      renderReprojection(data, data32, srcW, srcH);
-      return;
+    if (isHd) {
+      setIsLoadingHd(true);
     }
 
-    loadAndPin8KEarthTexture().then((cache) => {
-      if (!isSubscribed || !cache) return;
+    loadAndPinEarthTexture(isHd).then((cache) => {
+      if (!isSubscribed) return;
+      setIsLoadingHd(false);
+      if (!cache) return;
       rawImagePixelsRef.current = cache;
       renderReprojection(cache.data, cache.data32, cache.width, cache.height);
     });
@@ -554,7 +620,7 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
     return () => {
       isSubscribed = false;
     };
-  }, [renderReprojection]);
+  }, [isHd, renderReprojection]);
 
   // Twilight & Night Zones:
   // Overhauled multi-stop transparent shadow gradient to dramatically increase contrast.
@@ -1020,6 +1086,33 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
               Mercator
             </button>
           </div>
+
+          {/* Low-Profile HD Texture Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleHdResolution}
+            className={`px-2 py-1 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-mono font-medium transition-all flex items-center gap-1.5 cursor-pointer border ${
+              isHd
+                ? 'bg-amber-500/15 text-amber-300 border-amber-500/50 shadow-[0_0_8px_rgba(245,158,11,0.25)] hover:bg-amber-500/25 active:scale-95'
+                : 'bg-slate-900/90 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700 active:scale-95'
+            }`}
+            title={
+              isHd
+                ? 'HD Active: 8K High-Definition Texture (8192×4096). Click to switch to 2K baseline.'
+                : 'HD Off: 2K High-Performance Baseline (2048×1024). Click to enable 8K texture.'
+            }
+            aria-pressed={isHd}
+          >
+            <Sparkles className={`w-3 h-3 ${isHd ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`} />
+            <span className="font-semibold tracking-wider">HD</span>
+            <span
+              className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold leading-tight ${
+                isHd ? 'bg-amber-400/30 text-amber-200' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {isLoadingHd ? '...' : isHd ? '8K' : '2K'}
+            </span>
+          </button>
 
           {/* Interactive Dragging Status / Reset Badge */}
           <div className="flex items-center gap-1.5 text-amber-300 font-mono text-[10px] sm:text-[11px]">
