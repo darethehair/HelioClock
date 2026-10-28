@@ -1475,7 +1475,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
               {/* 3. LAYER: ELEGANT THIN GRID MATRIX (Altitude -90° to +90° & Azimuth 0° to 360°) */}
               {showGridLines && (
                 <g clipPath="url(#plot-area-clip)">
-                  {/* Vertical Azimuth Grid Lines: ultra-thin 0.5px with delicate 15% opacity */}
+                  {/* Vertical Azimuth Grid Lines: crisp 1px with 38% opacity */}
                   {azimuthTicks.map((tick) => {
                     const x = paddingLeft + (tick.deg / 360) * plotWidth;
                     const isCardinal = tick.deg % 90 === 0;
@@ -1487,15 +1487,15 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                         x2={x}
                         y2={paddingTop + plotHeight}
                         stroke={isCardinal ? '#38bdf8' : '#64748b'}
-                        strokeWidth="0.5"
-                        strokeOpacity="0.15"
+                        strokeWidth="1"
+                        strokeOpacity="0.38"
                         strokeDasharray={isCardinal ? undefined : '2 3'}
                         className="skymap-grid-line skymap-azimuth-spoke"
                       />
                     );
                   })}
 
-                  {/* Horizontal Altitude Grid Lines: ultra-thin 0.5px with delicate 15% opacity */}
+                  {/* Horizontal Altitude Grid Lines: crisp 1px with 38% opacity */}
                   {altitudeTicks.map((tick) => {
                     if (tick.isHorizon) return null; // Horizon baseline drawn separately with high prominence
                     const y = paddingTop + ((90 - tick.deg) / 180) * plotHeight;
@@ -1507,8 +1507,8 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                         x2={paddingLeft + plotWidth}
                         y2={y}
                         stroke={tick.deg > 0 ? '#38bdf8' : '#475569'}
-                        strokeWidth="0.5"
-                        strokeOpacity="0.15"
+                        strokeWidth="1"
+                        strokeOpacity="0.38"
                         strokeDasharray={tick.isMajor ? undefined : '3 3'}
                         className="skymap-grid-line skymap-altitude-ring"
                       />
@@ -1685,27 +1685,27 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
               {/* 3. LAYER: CONCENTRIC ALTITUDE RINGS & RADIAL AZIMUTH SPOKES (+30°, +60°, 90° Zenith) */}
               {showGridLines && (
                 <g clipPath="url(#polar-horizon-clip)">
-                  {/* +60° Altitude Concentric Ring: thin, perfect circular grid line */}
+                  {/* +60° Altitude Concentric Ring: crisp 1px circular grid line with 38% opacity */}
                   <circle
                     cx={polarCenter.x}
                     cy={polarCenter.y}
                     r={polarRadius * (30 / 90)}
                     fill="none"
                     stroke="#38bdf8"
-                    strokeWidth="0.5"
-                    strokeOpacity="0.15"
+                    strokeWidth="1"
+                    strokeOpacity="0.38"
                     className="skymap-grid-line skymap-altitude-ring"
                   />
 
-                  {/* +30° Altitude Concentric Ring: thin, perfect circular grid line */}
+                  {/* +30° Altitude Concentric Ring: crisp 1px circular grid line with 38% opacity */}
                   <circle
                     cx={polarCenter.x}
                     cy={polarCenter.y}
                     r={polarRadius * (60 / 90)}
                     fill="none"
                     stroke="#38bdf8"
-                    strokeWidth="0.5"
-                    strokeOpacity="0.15"
+                    strokeWidth="1"
+                    strokeOpacity="0.38"
                     className="skymap-grid-line skymap-altitude-ring"
                   />
 
@@ -1724,24 +1724,24 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                         x2={x2}
                         y2={y2}
                         stroke={isCardinal ? '#38bdf8' : is30 ? '#38bdf8' : '#64748b'}
-                        strokeWidth="0.5"
-                        strokeOpacity="0.15"
+                        strokeWidth="1"
+                        strokeOpacity="0.38"
                         strokeDasharray={isCardinal ? undefined : is30 ? '3 3' : '1 3'}
                         className="skymap-grid-line skymap-azimuth-spoke"
                       />
                     );
                   })}
 
-                  {/* Zenith 90° Center Crosshair & Core Dot: ultra-thin 0.5px with 15% opacity */}
-                  <circle cx={polarCenter.x} cy={polarCenter.y} r="1.5" fill="#38bdf8" fillOpacity="0.6" />
+                  {/* Zenith 90° Center Crosshair & Core Dot: crisp 1px with 38% opacity */}
+                  <circle cx={polarCenter.x} cy={polarCenter.y} r="1.5" fill="#38bdf8" fillOpacity="0.7" />
                   <line
                     x1={polarCenter.x - 6}
                     y1={polarCenter.y}
                     x2={polarCenter.x + 6}
                     y2={polarCenter.y}
                     stroke="#38bdf8"
-                    strokeWidth="0.5"
-                    strokeOpacity="0.15"
+                    strokeWidth="1"
+                    strokeOpacity="0.38"
                     className="skymap-grid-line"
                   />
                   <line
@@ -1750,8 +1750,8 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                     x2={polarCenter.x}
                     y2={polarCenter.y + 6}
                     stroke="#38bdf8"
-                    strokeWidth="0.5"
-                    strokeOpacity="0.15"
+                    strokeWidth="1"
+                    strokeOpacity="0.38"
                     className="skymap-grid-line"
                   />
                 </g>
@@ -1784,16 +1784,16 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 {/* High-Density 10-Degree Radials around 0° Horizon Perimeter (0° to 350°) */}
                 {polarAzimuthScale.map((tick) => (
                   <g key={`polar-10deg-radial-${tick.deg}`}>
-                    {/* Thinned dashed extension lines extending inward: ultra-thin 0.5px with low 20% opacity */}
+                    {/* Thinned dashed extension lines extending inward: crisp 1px with 38% opacity */}
                     <line
                       x1={tick.xExt}
                       y1={tick.yExt}
                       x2={tick.x1}
                       y2={tick.y1}
                       stroke="#38bdf8"
-                      strokeWidth="0.5"
+                      strokeWidth="1"
                       strokeDasharray="1 2"
-                      strokeOpacity="0.20"
+                      strokeOpacity="0.38"
                       className="skymap-grid-line select-none pointer-events-none"
                     />
                     {/* Fine radial tick marker extending inward from 0° True Horizon perimeter ring */}
@@ -1803,8 +1803,8 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                       x2={tick.x2}
                       y2={tick.y2}
                       stroke="#38bdf8"
-                      strokeWidth="0.5"
-                      strokeOpacity="0.20"
+                      strokeWidth="1"
+                      strokeOpacity="0.38"
                       className="skymap-grid-line skymap-notch-line select-none pointer-events-none"
                     />
                   </g>
@@ -1990,7 +1990,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
               {/* Grid Lines & Scale Distance Rings */}
               {showGridLines && (
                 <g>
-                  {/* Cardinal / Ecliptic Longitude Reference Rays: ultra-thin 0.5px with delicate 15% opacity */}
+                  {/* Cardinal / Ecliptic Longitude Reference Rays: crisp 1px with 38% opacity */}
                   {[0, 90, 180, 270].map((deg) => {
                     const rad = deg * (Math.PI / 180);
                     const rx = polarCenter.x + Math.cos(rad) * (orreryRadius + 14);
@@ -2003,9 +2003,9 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                         x2={rx}
                         y2={ry}
                         stroke="#334155"
-                        strokeWidth="0.5"
+                        strokeWidth="1"
                         strokeDasharray="2 3"
-                        strokeOpacity="0.15"
+                        strokeOpacity="0.38"
                         className="skymap-grid-line skymap-azimuth-spoke"
                       />
                     );
@@ -2018,9 +2018,9 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                     x2={polarCenter.x + orreryRadius + 15}
                     y2={polarCenter.y}
                     stroke="#38bdf8"
-                    strokeWidth="0.5"
+                    strokeWidth="1"
                     strokeDasharray="3 3"
-                    strokeOpacity="0.15"
+                    strokeOpacity="0.38"
                     className="skymap-grid-line"
                   />
                   <text
@@ -2034,7 +2034,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                     0° ♈
                   </text>
 
-                  {/* Scale Concentric Distance Rings: Inner vs Outer (ultra-thin 0.5px with 15% opacity) */}
+                  {/* Scale Concentric Distance Rings: Inner vs Outer (crisp 1px with 38% opacity) */}
                   {orreryGroup === 'inner' ? (
                     [0.5, 1.0, 1.5].map((au) => {
                       const pxPerAU = orreryRadius / 1.78;
@@ -2048,9 +2048,9 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                             r={rPx}
                             fill="none"
                             stroke={isEarth ? '#38bdf8' : '#334155'}
-                            strokeWidth="0.5"
+                            strokeWidth="1"
                             strokeDasharray={isEarth ? '4 3' : '2 3'}
-                            strokeOpacity="0.15"
+                            strokeOpacity="0.38"
                             className="skymap-grid-line skymap-altitude-ring"
                           />
                           {/* AU reference label perfectly aligned directly on top of circular orbit path */}
@@ -2122,9 +2122,9 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                               r={rPx}
                               fill="none"
                               stroke="#334155"
-                              strokeWidth="0.5"
+                              strokeWidth="1"
                               strokeDasharray="2 3"
-                              strokeOpacity="0.25"
+                              strokeOpacity="0.38"
                               className="skymap-grid-line skymap-altitude-ring"
                             />
                             <text

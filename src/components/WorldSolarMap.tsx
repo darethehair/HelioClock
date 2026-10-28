@@ -43,6 +43,7 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
   onResetLive,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapViewportRef = useRef<HTMLDivElement | null>(null);
   const { isFullscreen, toggleFullscreen } = useElementFullscreen(containerRef);
   const { clickRing, startRing, updateRing, endRing } = useClickRing();
 
@@ -51,15 +52,72 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
     typeof window !== 'undefined' ? window.innerWidth < 600 : false
   );
 
+  // Dynamic canvas & SVG viewport coordinate bounds (960x580 baseline, dynamic in fullscreen)
+  const [dimensions, setDimensions] = useState<{ width: number; height: number }>({
+    width: 960,
+    height: 580,
+  });
+
+  const updateDimensions = useCallback(() => {
+    if (isFullscreen) {
+      if (mapViewportRef.current) {
+        const rect = mapViewportRef.current.getBoundingClientRect();
+        const clientW = Math.round(rect.width || mapViewportRef.current.clientWidth || window.innerWidth);
+        const clientH = Math.round(rect.height || mapViewportRef.current.clientHeight || (window.innerHeight - 100));
+        if (clientW > 40 && clientH > 40) {
+          setDimensions((prev) => {
+            if (prev.width === clientW && prev.height === clientH) return prev;
+            return { width: clientW, height: clientH };
+          });
+          return;
+        }
+      }
+      const fallbackW = window.innerWidth;
+      const fallbackH = Math.max(200, window.innerHeight - 100);
+      setDimensions((prev) => {
+        if (prev.width === fallbackW && prev.height === fallbackH) return prev;
+        return { width: fallbackW, height: fallbackH };
+      });
+    } else {
+      setDimensions((prev) => {
+        if (prev.width === 960 && prev.height === 580) return prev;
+        return { width: 960, height: 580 };
+      });
+    }
+  }, [isFullscreen]);
+
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 600);
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 600);
+      updateDimensions();
+    };
+
+    updateDimensions();
+
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleResize);
+
+    const t1 = setTimeout(updateDimensions, 50);
+    const t2 = setTimeout(updateDimensions, 200);
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && mapViewportRef.current) {
+      ro = new ResizeObserver(() => {
+        updateDimensions();
+      });
+      ro.observe(mapViewportRef.current);
+    }
+
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      if (ro) {
+        ro.disconnect();
+      }
     };
-  }, []);
+  }, [isFullscreen, updateDimensions]);
 
   const isMobileFullscreen = isFullscreen && isMobile;
 
@@ -128,19 +186,29 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
     return calculateSubsolarPoint(simulatedDate);
   }, [simulatedDate]);
 
-  // Dimensions
-  const width = 960;
-  const height = 580;
+  // Dimensions dynamically matching viewport in fullscreen mode (960x580 baseline)
+  const { width, height } = dimensions;
   const margin = 20;
-  const effectiveMargin = isMobileFullscreen ? 0 : margin;
-  // Spherical Earth Viewport Scaling: Increased by 35% (284px), scaled up by an additional 20% in individual mobile fullscreen (341px)
-  const baseGlobeRadius = 210;
-  const globeRadius = Math.round(baseGlobeRadius * 1.35 * (isMobileFullscreen ? 1.20 : 1.0)); // 284px -> 341px in mobile fullscreen
+  const effectiveMargin = isFullscreen ? 8 : (isMobileFullscreen ? 0 : margin);
+
+  // Dynamic 3D Spherical Earth Globe Radius:
+  // In individual fullscreen mode: Dynamically scale sphere diameter to fill at least 90% of
+  // the available viewport height or width (whichever is smaller) with zero static pixel bounds.
+  // In standard card mode: Use standard observatory radius scaled up by 35%.
+  const globeRadius = useMemo(() => {
+    if (isFullscreen) {
+      const minViewportDim = Math.min(width, height);
+      // Diameter = 2 * R = 90% of min(width, height)
+      return Math.round((minViewportDim * 0.90) / 2);
+    }
+    const baseGlobeRadius = 210;
+    return Math.round(baseGlobeRadius * 1.35 * (isMobileFullscreen ? 1.20 : 1.0));
+  }, [isFullscreen, width, height, isMobileFullscreen]);
 
   // Active D3 projection configured with live shared calculation coordinates
   const projection = useMemo(() => {
     if (projectionType === 'orthographic') {
-      // 3D Orthographic sphere viewed from space with dynamic two-axis rotation and 35% dynamic zoom (+20% in mobile fullscreen)
+      // 3D Orthographic sphere viewed from space with dynamic two-axis rotation and dynamic full-frame zoom
       return geoOrthographic()
         .rotate([-currentLongitude, -currentLatitude])
         .scale(globeRadius)
@@ -150,7 +218,7 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
       const proj = geoMercator()
         .rotate([-currentLongitude, 0])
         .fitSize([width - effectiveMargin * 2, height - effectiveMargin * 2], { type: 'Sphere' });
-      if (isMobileFullscreen) {
+      if (isMobileFullscreen && !isFullscreen) {
         proj.scale(proj.scale() * 1.20);
       }
       return proj.translate([width / 2, height / 2]);
@@ -159,12 +227,12 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
       const proj = geoEqualEarth()
         .rotate([-currentLongitude, 0])
         .fitSize([width - effectiveMargin * 2, height - effectiveMargin * 2], { type: 'Sphere' });
-      if (isMobileFullscreen) {
+      if (isMobileFullscreen && !isFullscreen) {
         proj.scale(proj.scale() * 1.20);
       }
       return proj.translate([width / 2, height / 2]);
     }
-  }, [projectionType, currentLongitude, currentLatitude, width, height, effectiveMargin, globeRadius, isMobileFullscreen]);
+  }, [projectionType, currentLongitude, currentLatitude, width, height, effectiveMargin, globeRadius, isMobileFullscreen, isFullscreen]);
 
 
   const pathGenerator = useMemo(() => {
@@ -761,9 +829,7 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
       ref={containerRef}
       className={`fullscreen-module-card world-map-fullscreen w-full bg-black select-none transition-all ${
         isFullscreen
-          ? isMobileFullscreen
-            ? 'fullscreen-module-active !p-0 !m-0 !border-none !rounded-none !bg-black !w-screen !h-screen flex flex-col justify-between overflow-x-hidden fixed inset-0 z-[100]'
-            : 'fullscreen-module-active !rounded-none !p-2 sm:!p-4 !h-screen !w-screen flex flex-col justify-between overflow-y-auto z-[100]'
+          ? 'fullscreen-module-active !p-0 !m-0 !border-none !rounded-none !bg-black !w-screen !h-screen fixed inset-0 flex flex-col justify-between overflow-hidden z-[100]'
           : 'rounded-none sm:rounded-2xl landscape:rounded-2xl border-y sm:border landscape:border border-slate-800 p-0 sm:p-5 landscape:p-3 sm:landscape:p-5 shadow-2xl relative'
       }`}
     >
@@ -885,11 +951,10 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
 
       {/* Main Map Viewport: Canvas Base Map + Orthographic Lighting / SVG Shading Layer */}
       <div
+        ref={mapViewportRef}
         className={`relative w-full overflow-hidden bg-[#020617] shadow-inner cursor-grab active:cursor-grabbing touch-none select-none transition-all ${
           isFullscreen
-            ? isMobileFullscreen
-              ? 'fullscreen-map-viewport flex-1 h-full w-full min-h-[50vh] rounded-none border-none p-0 m-0'
-              : 'fullscreen-map-viewport flex-1 min-h-[55vh] h-full rounded-lg border border-slate-800'
+            ? 'fullscreen-map-viewport flex-1 w-full h-full min-h-0 rounded-none border-none p-0 m-0'
             : 'aspect-[960/580] min-h-[40vh] sm:min-h-[440px] landscape:min-h-[260px] rounded-none sm:rounded-xl landscape:rounded-xl border-y sm:border landscape:border border-slate-900'
         }`}
         onPointerDown={handlePointerDown}
@@ -1237,7 +1302,7 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
         {/* Drag Hint Overlay Badge */}
         <div
           className={`absolute bg-black/80 backdrop-blur-xs px-2.5 py-1 rounded-full border border-slate-700/60 text-slate-300 font-mono flex items-center gap-1.5 pointer-events-none shadow-lg z-20 ${
-            isMobileFullscreen ? 'bottom-2 left-2.5 text-[9.5px]' : 'bottom-2.5 right-3 text-[10px]'
+            isFullscreen ? 'bottom-2 right-3 text-[10px]' : (isMobile ? 'bottom-2 left-2.5 text-[9.5px]' : 'bottom-2.5 right-3 text-[10px]')
           }`}
         >
           {projectionType === 'mercator' ? (
@@ -1256,9 +1321,9 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
 
       {/* Synchronized Real-Time Coordinates HUD Bar */}
       <div
-        className={`transition-all text-xs font-mono flex flex-wrap items-center justify-between gap-2.5 ${
+        className={`transition-all text-xs font-mono flex flex-wrap items-center justify-between gap-2 ${
           isFullscreen
-            ? 'sticky bottom-0 z-30 bg-black/95 backdrop-blur-md p-2.5 sm:p-3 border-t border-slate-800 rounded-none shrink-0 shadow-lg'
+            ? 'sticky bottom-0 z-30 bg-black/95 backdrop-blur-md px-2.5 sm:px-4 py-2 border-t border-slate-800 rounded-none shrink-0 shadow-lg'
             : 'mt-3 mx-3 sm:mx-0 mb-3 sm:mb-0 landscape:mx-0 landscape:mb-0 bg-slate-950/80 rounded-xl border border-slate-800 p-3'
         }`}
       >

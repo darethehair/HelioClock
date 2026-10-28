@@ -312,22 +312,18 @@
   }
 }
 
-/* Grid background lines and path lines: stroke-width 0.5px with 0.25 opacity */
+/* Grid background lines and path lines: crisp 1px stroke-width with 38% opacity (35% to 40% threshold) */
 .skymap-grid-line,
-.skymap-path-line,
 .skymap-altitude-ring,
 .skymap-azimuth-spoke,
 .skymap-orbit-line,
 .skymap-notch-line,
 .skymap-fullscreen .skymap-grid-line,
-.skymap-fullscreen .skymap-path-line,
 .fullscreen-module-active .skymap-grid-line,
-.fullscreen-module-active .skymap-path-line,
-:fullscreen .skymap-grid-line,
-:fullscreen .skymap-path-line {
-  stroke-width: 0.5px !important;
-  opacity: 0.25 !important;
-  stroke-opacity: 0.25 !important;
+:fullscreen .skymap-grid-line {
+  stroke-width: 1px !important;
+  opacity: 0.38 !important;
+  stroke-opacity: 0.38 !important;
 }
 
 /* Sun Diurnal Trajectory: Crisp Orange Dotted Arc above 0° Horizon */
