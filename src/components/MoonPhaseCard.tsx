@@ -97,34 +97,45 @@ export const MoonPhaseCard: React.FC<MoonPhaseCardProps> = ({
     ctx.arc(cx, cy, R, 0, Math.PI * 2);
     ctx.clip();
 
-    // 2. Draw photographic texture or procedural fallback
-    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
-      ctx.drawImage(imgRef.current, cx - R, cy - R, R * 2, R * 2);
-    } else {
-      ctx.fillStyle = '#cbd5e1';
-      ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
-    }
-
-    // 3. Rotate context by Position Angle tilt relative to Zenith
-    // Zenith is straight up (-Y). In canvas, -Y is angle -PI/2.
-    // tiltAngleDeg is measured clockwise from Zenith:
-    // Angle in canvas space = (tiltAngleDeg - 90) * (PI / 180)
+    // 2. UNIFIED TOPOCENTRIC LUNAR COORDINATE SPACE
+    // Origin is at lunar center (cx, cy).
+    // Zenith (straight UP in observer's field of view) is at canvas -Y.
     ctx.save();
     ctx.translate(cx, cy);
-    const rotRad = ((metrics.tiltAngleDeg - 90) * Math.PI) / 180;
-    ctx.rotate(rotRad);
+
+    // A. Draw base lunar surface texture dynamically oriented by the topocentric pole vector
+    // metrics.poleAngleFromZenithDeg is the true angle of the Lunar/Celestial North Pole
+    // relative to the observer's local Zenith (clockwise from UP).
+    // In the Southern Hemisphere, this automatically rotates the lunar disc upside down (~180°),
+    // correctly matching naked-eye sky reality worldwide without static mirrors.
+    ctx.save();
+    ctx.rotate((metrics.poleAngleFromZenithDeg * Math.PI) / 180);
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      ctx.drawImage(imgRef.current, -R, -R, R * 2, R * 2);
+    } else {
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(-R, -R, R * 2, R * 2);
+    }
+    ctx.restore();
+
+    // B. Lighting / Terminator Phase Angle Mask in the same topocentric observer space
+    // metrics.sunAngleFromZenithDeg points directly toward the Sun in the observer's sky plane.
+    // In canvas coordinates, Zenith is -90° (-Y), so canvas rotation is (sunAngleFromZenithDeg - 90)°.
+    ctx.save();
+    const sunRotRad = ((metrics.sunAngleFromZenithDeg - 90) * Math.PI) / 180;
+    ctx.rotate(sunRotRad);
 
     // In this rotated coordinate system:
     // +X points directly toward the Sun (illuminated limb).
     // -X points away from the Sun (dark hemisphere).
     // Terminator curve equation: x_T(y) = r(y) * cos(Elongation)
-    const cosD = Math.cos((metrics.elongationDeg * Math.PI) / 180);
+    const cosD = metrics.cosElongation ?? Math.cos((metrics.elongationDeg * Math.PI) / 180);
 
     ctx.beginPath();
     // Start at top pole (0, -R)
     ctx.moveTo(0, -R);
 
-    // Follow the outer dark rim (left semi-circle passing through -R, 0)
+    // Follow the outer dark rim (semi-circle on the -X side)
     ctx.arc(0, 0, R, -Math.PI / 2, Math.PI / 2, true);
 
     // Follow the elliptical terminator line back up from (0, +R) to (0, -R)
@@ -147,7 +158,7 @@ export const MoonPhaseCard: React.FC<MoonPhaseCardProps> = ({
     ctx.strokeStyle = 'rgba(6, 8, 16, 0.4)';
     ctx.stroke();
 
-    // 4. Subtle 3D Spherical Ambient & Limb Darkening Overlay
+    // C. 3D Spherical Ambient & Limb Darkening Overlay oriented toward the Sun
     const sphereGrad = ctx.createRadialGradient(R * 0.25, -R * 0.1, R * 0.05, 0, 0, R);
     sphereGrad.addColorStop(0, 'rgba(255, 255, 255, 0.06)');
     sphereGrad.addColorStop(0.7, 'rgba(0, 0, 0, 0)');
@@ -157,7 +168,8 @@ export const MoonPhaseCard: React.FC<MoonPhaseCardProps> = ({
     ctx.arc(0, 0, R, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.restore(); // Restore tilt rotation
+    ctx.restore(); // Restore Sun rotation
+    ctx.restore(); // Restore center translation
     ctx.restore(); // Restore circular clip
 
     // 5. Crisp outer atmospheric boundary ring

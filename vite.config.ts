@@ -17,7 +17,8 @@ export default defineConfig(() => {
           'icon.svg',
           'pwa-192x192.png',
           'pwa-512x512.png',
-          'earth_physical_map.jpg'
+          'earth_map_low.jpg',
+          'earth_map_4k.jpg'
         ],
         manifest: {
           id: '/',

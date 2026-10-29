@@ -669,6 +669,9 @@ export interface DetailedMoonMetrics {
   sunAzimuth: number;
   isWaxing: boolean;
   elongationDeg: number;
+  sunAngleFromZenithDeg: number; // Dynamic topocentric angle of the Sun relative to local Zenith (clockwise on sky view)
+  poleAngleFromZenithDeg: number; // Dynamic topocentric angle of Lunar/Celestial North Pole relative to local Zenith
+  cosElongation: number; // 3D cosine of elongation
 }
 
 /**
@@ -790,6 +793,56 @@ export function calculateDetailedMoonPhase(
   const moonHoriz = equatorialToHorizontal(raMoonDeg, decMoonDeg, latDeg, lst);
   const sunHoriz = equatorialToHorizontal(raSunDeg, decSunDeg, latDeg, lst);
 
+  // 10. True Topocentric 3D Sky-Plane Projection (Naked-Eye Perspective)
+  const azMoonRad = moonHoriz.azimuth * DEG2RAD;
+  const altMoonRad = moonHoriz.altitude * DEG2RAD;
+  const azSunRad = sunHoriz.azimuth * DEG2RAD;
+  const altSunRad = sunHoriz.altitude * DEG2RAD;
+
+  // Topocentric unit vectors in local horizon coordinates (X=East, Y=North, Z=Zenith)
+  const rm = [
+    Math.cos(altMoonRad) * Math.sin(azMoonRad),
+    Math.cos(altMoonRad) * Math.cos(azMoonRad),
+    Math.sin(altMoonRad),
+  ];
+
+  const rs = [
+    Math.cos(altSunRad) * Math.sin(azSunRad),
+    Math.cos(altSunRad) * Math.cos(azSunRad),
+    Math.sin(altSunRad),
+  ];
+
+  // Camera basis on the sky plane looking directly along line-of-sight rm:
+  // Projection of local Zenith (0, 0, 1) onto plane perpendicular to rm
+  const cosAlt = Math.max(1e-6, Math.cos(altMoonRad));
+  const vUp = [
+    -Math.sin(altMoonRad) * rm[0] / cosAlt,
+    -Math.sin(altMoonRad) * rm[1] / cosAlt,
+    cosAlt,
+  ];
+
+  // Observer's Right in the sky: vRight = rm x vUp
+  const vRight = [
+    rm[1] * vUp[2] - rm[2] * vUp[1],
+    rm[2] * vUp[0] - rm[0] * vUp[2],
+    rm[0] * vUp[1] - rm[1] * vUp[0],
+  ];
+
+  // Sun direction projected onto the observer's (Right, Up) field of view
+  const sunX = rs[0] * vRight[0] + rs[1] * vRight[1] + rs[2] * vRight[2];
+  const sunY = rs[0] * vUp[0] + rs[1] * vUp[1] + rs[2] * vUp[2];
+  const sunAngleFromZenithDeg = ((Math.atan2(sunX, sunY) * RAD2DEG) % 360 + 360) % 360;
+
+  // North Celestial Pole projected onto observer's (Right, Up) field of view
+  // Vector to NCP in horizon coordinates: (0, cos(phi), sin(phi))
+  const pNcp = [0, Math.cos(phiRad), Math.sin(phiRad)];
+  const poleX = pNcp[0] * vRight[0] + pNcp[1] * vRight[1] + pNcp[2] * vRight[2];
+  const poleY = pNcp[0] * vUp[0] + pNcp[1] * vUp[1] + pNcp[2] * vUp[2];
+  const poleAngleFromZenithDeg = ((Math.atan2(poleX, poleY) * RAD2DEG) % 360 + 360) % 360;
+
+  // True 3D cosine of elongation between Moon and Sun
+  const cosElongation = rm[0] * rs[0] + rm[1] * rs[1] + rm[2] * rs[2];
+
   return {
     phaseName,
     illuminationPct,
@@ -799,7 +852,7 @@ export function calculateDetailedMoonPhase(
     lunarAgeHours,
     lunarAgeMinutes,
     lunarAgeText,
-    tiltAngleDeg,
+    tiltAngleDeg: sunAngleFromZenithDeg, // Dynamic topocentric bright limb angle relative to Zenith
     parallacticAngleDeg: q,
     equatorialPositionAngleDeg: chi,
     moonAltitude: moonHoriz.altitude,
@@ -808,5 +861,8 @@ export function calculateDetailedMoonPhase(
     sunAzimuth: sunHoriz.azimuth,
     isWaxing,
     elongationDeg: D,
+    sunAngleFromZenithDeg,
+    poleAngleFromZenithDeg,
+    cosElongation,
   };
 }

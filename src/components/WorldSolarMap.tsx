@@ -7,8 +7,11 @@ import { Globe, Sun, Moon, MapPin, Compass, Play, Pause, RotateCcw, Sparkles, Mo
 import { calculateSubsolarPoint } from '../utils/solarCalculator';
 import { useElementFullscreen } from '../hooks/useElementFullscreen';
 import { useClickRing } from '../hooks/useClickRing';
-// Unified World Map Asset Target: singular physical map texture
-export const EARTH_MAP_URL = '/earth_physical_map.jpg';
+// Bundled dual-texture setup for World Solar Map (2 image files total):
+// 1. Low-resolution baseline texture (2048 × 1024)
+// 2. 4K high-resolution texture (4096 × 2048)
+export const EARTH_MAP_LOW_URL = '/earth_map_low.jpg';
+export const EARTH_MAP_4K_URL = '/earth_map_4k.jpg';
 
 export interface EarthTextureCache {
   data: Uint8ClampedArray;
@@ -19,10 +22,10 @@ export interface EarthTextureCache {
   isHd: boolean;
 }
 
-let globalTextureCache2K: EarthTextureCache | null = null;
-let globalTextureCache8K: EarthTextureCache | null = null;
-let loadPromise2K: Promise<EarthTextureCache | null> | null = null;
-let loadPromise8K: Promise<EarthTextureCache | null> | null = null;
+let globalTextureCacheLow: EarthTextureCache | null = null;
+let globalTextureCache4K: EarthTextureCache | null = null;
+let loadPromiseLow: Promise<EarthTextureCache | null> | null = null;
+let loadPromise4K: Promise<EarthTextureCache | null> | null = null;
 
 /**
  * Standard WebGL texture pinning:
@@ -52,23 +55,23 @@ function pinTextureToGPU(imageSource: HTMLImageElement | HTMLCanvasElement): boo
 }
 
 /**
- * Pre-loads and pins the unified 'earth_physical_map.jpg' asset into hardware graphics processor
- * texture memory, dynamically generating either the optimized 2K baseline or full 8K buffer.
+ * Pre-loads and pins either the low-resolution baseline or 4K high-resolution texture
+ * into hardware graphics processor memory.
  */
 export async function loadAndPinEarthTexture(isHd: boolean): Promise<EarthTextureCache | null> {
   if (isHd) {
-    if (globalTextureCache8K) return globalTextureCache8K;
-    if (loadPromise8K) return loadPromise8K;
+    if (globalTextureCache4K) return globalTextureCache4K;
+    if (loadPromise4K) return loadPromise4K;
 
-    loadPromise8K = new Promise<EarthTextureCache | null>((resolve) => {
+    loadPromise4K = new Promise<EarthTextureCache | null>((resolve) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
-      img.src = EARTH_MAP_URL;
+      img.src = EARTH_MAP_4K_URL;
 
       img.onload = () => {
         try {
-          const w = img.naturalWidth || 8192;
-          const h = img.naturalHeight || 4096;
+          const w = img.naturalWidth || 4096;
+          const h = img.naturalHeight || 2048;
 
           const gpuPinned = pinTextureToGPU(img);
 
@@ -77,7 +80,7 @@ export async function loadAndPinEarthTexture(isHd: boolean): Promise<EarthTextur
           offCanvas.height = h;
           const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
           if (!offCtx) {
-            loadPromise8K = null;
+            loadPromise4K = null;
             resolve(null);
             return;
           }
@@ -94,35 +97,35 @@ export async function loadAndPinEarthTexture(isHd: boolean): Promise<EarthTextur
             gpuPinned,
             isHd: true,
           };
-          globalTextureCache8K = cache;
-          loadPromise8K = null;
+          globalTextureCache4K = cache;
+          loadPromise4K = null;
           resolve(cache);
         } catch {
-          loadPromise8K = null;
+          loadPromise4K = null;
           resolve(null);
         }
       };
 
       img.onerror = () => {
-        loadPromise8K = null;
-        resolve(null);
+        // Fallback to low-res if 4K fails to load
+        loadPromise4K = null;
+        loadAndPinEarthTexture(false).then(resolve);
       };
     });
-    return loadPromise8K;
+    return loadPromise4K;
   } else {
-    if (globalTextureCache2K) return globalTextureCache2K;
-    if (loadPromise2K) return loadPromise2K;
+    if (globalTextureCacheLow) return globalTextureCacheLow;
+    if (loadPromiseLow) return loadPromiseLow;
 
-    loadPromise2K = new Promise<EarthTextureCache | null>((resolve) => {
+    loadPromiseLow = new Promise<EarthTextureCache | null>((resolve) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
-      img.src = EARTH_MAP_URL;
+      img.src = EARTH_MAP_LOW_URL;
 
       img.onload = () => {
         try {
-          // Downscale to 2048x1024 for baseline performance & minimal memory
-          const w = 2048;
-          const h = 1024;
+          const w = img.naturalWidth || 2048;
+          const h = img.naturalHeight || 1024;
 
           const gpuPinned = pinTextureToGPU(img);
 
@@ -131,7 +134,7 @@ export async function loadAndPinEarthTexture(isHd: boolean): Promise<EarthTextur
           offCanvas.height = h;
           const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
           if (!offCtx) {
-            loadPromise2K = null;
+            loadPromiseLow = null;
             resolve(null);
             return;
           }
@@ -148,25 +151,26 @@ export async function loadAndPinEarthTexture(isHd: boolean): Promise<EarthTextur
             gpuPinned,
             isHd: false,
           };
-          globalTextureCache2K = cache;
-          loadPromise2K = null;
+          globalTextureCacheLow = cache;
+          loadPromiseLow = null;
           resolve(cache);
         } catch {
-          loadPromise2K = null;
+          loadPromiseLow = null;
           resolve(null);
         }
       };
 
       img.onerror = () => {
-        loadPromise2K = null;
-        resolve(null);
+        // Fallback to 4K if low-res fails to load
+        loadPromiseLow = null;
+        loadAndPinEarthTexture(true).then(resolve);
       };
     });
-    return loadPromise2K;
+    return loadPromiseLow;
   }
 }
 
-// Pre-load default 2K baseline right at bootup for instant 60 FPS loading
+// Pre-load default low-resolution baseline right at bootup for instant 60 FPS loading
 if (typeof window !== 'undefined') {
   loadAndPinEarthTexture(false).catch(() => {});
   try {
@@ -597,12 +601,12 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
     setIsMapReady(true);
   }, [projection, projectionType, currentLatitude, currentLongitude, sphereOutline, width, height, globeRadius]);
 
-  // Load and dynamically swap active texture (2K baseline or 8K HD)
+  // Load and dynamically swap active texture (Low-res baseline or 4K HD)
   useEffect(() => {
     let isSubscribed = true;
 
     // Check if the requested variant is already in memory
-    const activeCache = isHd ? globalTextureCache8K : globalTextureCache2K;
+    const activeCache = isHd ? globalTextureCache4K : globalTextureCacheLow;
     if (activeCache) {
       rawImagePixelsRef.current = activeCache;
       renderReprojection(activeCache.data, activeCache.data32, activeCache.width, activeCache.height);
@@ -1102,8 +1106,8 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
             }`}
             title={
               isHd
-                ? 'HD Active: 8K High-Definition Texture (8192×4096). Click to switch to 2K baseline.'
-                : 'HD Off: 2K High-Performance Baseline (2048×1024). Click to enable 8K texture.'
+                ? '4K High-Resolution Texture Active (4096×2048). Click to switch to low-resolution baseline.'
+                : 'Low-Resolution Baseline Active (2048×1024). Click to enable 4K high-resolution texture.'
             }
             aria-pressed={isHd}
           >
@@ -1114,7 +1118,7 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
                 isHd ? 'bg-amber-400/30 text-amber-200' : 'bg-slate-800 text-slate-400'
               }`}
             >
-              {isLoadingHd ? '...' : isHd ? '8K' : '2K'}
+              {isLoadingHd ? '...' : isHd ? '4K' : 'LOW'}
             </span>
           </button>
 
