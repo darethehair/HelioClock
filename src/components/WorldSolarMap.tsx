@@ -7,11 +7,14 @@ import { Globe, Sun, Moon, MapPin, Compass, Play, Pause, RotateCcw, Sparkles, Mo
 import { calculateSubsolarPoint } from '../utils/solarCalculator';
 import { useElementFullscreen } from '../hooks/useElementFullscreen';
 import { useClickRing } from '../hooks/useClickRing';
-// Bundled dual-texture setup for World Solar Map (2 image files total):
+import earthMapLowUrl from '../assets/images/earth_map_low.jpg';
+import earthMap4kUrl from '../assets/images/earth_map_4k.jpg';
+
+// Bundled dual-texture setup for World Solar Map (loaded as module assets):
 // 1. Low-resolution baseline texture (2048 × 1024)
 // 2. 4K high-resolution texture (4096 × 2048)
-export const EARTH_MAP_LOW_URL = '/earth_map_low.jpg';
-export const EARTH_MAP_4K_URL = '/earth_map_4k.jpg';
+export const EARTH_MAP_LOW_URL = earthMapLowUrl;
+export const EARTH_MAP_4K_URL = earthMap4kUrl;
 
 export interface EarthTextureCache {
   data: Uint8ClampedArray;
