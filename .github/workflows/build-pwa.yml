@@ -53,15 +53,10 @@ jobs:
           grep -q '/helioclock/' dist/index.html
           node -e "const m=JSON.parse(require('fs').readFileSync('dist/manifest.webmanifest','utf8')); if(m.start_url !== '/helioclock/' || m.scope !== '/helioclock/') process.exit(1)"
 
-      - name: Create deployment ZIP
-        run: |
-          cd dist
-          zip -qr ../HelioClock-PWA.zip .
-
-      - name: Upload downloadable ZIP
+      - name: Upload PWA build artifact
         uses: actions/upload-artifact@v4
         with:
           name: HelioClock-PWA
-          path: HelioClock-PWA.zip
+          path: dist/
           if-no-files-found: error
           retention-days: 30
