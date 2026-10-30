@@ -82,6 +82,20 @@ export default defineConfig(() => {
                 },
               },
             },
+            {
+              urlPattern: /^https:\/\/services\.swpc\.noaa\.gov\/.*/i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'noaa-space-weather-cache',
+                expiration: {
+                  maxEntries: 10,
+                  maxAgeSeconds: 60 * 60 * 3, // 3 hours
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
           ],
         },
         devOptions: {

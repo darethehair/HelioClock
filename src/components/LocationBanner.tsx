@@ -1,6 +1,7 @@
 import React from 'react';
 import { Compass, RotateCw, MapPin, CheckCircle2, AlertCircle } from 'lucide-react';
 import { formatUtcOffset, getSystemTimeZoneId } from '../utils/solarCalculator';
+import { SpaceWeatherBadge } from './SpaceWeatherBadge';
 
 interface LocationBannerProps {
   latitude: number;
@@ -42,7 +43,7 @@ export const LocationBanner: React.FC<LocationBannerProps> = ({
   const timeZoneId = getSystemTimeZoneId();
 
   return (
-    <div className="w-full bg-slate-950/95 border-b border-slate-800/90 backdrop-blur-md px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+    <div className="relative z-30 w-full bg-slate-950/95 border-b border-slate-800/90 backdrop-blur-md px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2.5 text-xs">
       {/* Primary Required Dynamic Header Reference */}
       <div className="flex items-center gap-2 flex-wrap min-w-0">
         <div className="flex items-center gap-1.5 text-slate-300 font-mono tracking-tight font-medium text-xs sm:text-sm">
@@ -92,6 +93,11 @@ export const LocationBanner: React.FC<LocationBannerProps> = ({
             </span>
           )}
         </div>
+
+        <span className="text-slate-700 hidden xs:inline" aria-hidden="true">·</span>
+
+        {/* Live Space Weather Planetary Kp Index Badge */}
+        <SpaceWeatherBadge />
       </div>
 
       {/* Action triggers */}

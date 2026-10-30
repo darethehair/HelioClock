@@ -69,7 +69,7 @@ export const MoonPhaseCard: React.FC<MoonPhaseCardProps> = ({
     };
   }, []);
 
-  const displaySize = isFullscreen ? fullscreenSize : 96;
+  const displaySize = isFullscreen ? fullscreenSize : 54;
 
   // Draw the dynamically shaded, tilted lunar sphere
   useEffect(() => {
@@ -295,29 +295,29 @@ export const MoonPhaseCard: React.FC<MoonPhaseCardProps> = ({
           </div>
         </>
       ) : (
-        /* Normal Card Layout inside Upper Dashboard */
-        <div className="flex flex-col items-center justify-between flex-1 w-full space-y-2">
-          {/* Centered Lunar Sphere with real-time photographic shading and tilt */}
-          <div className="relative my-0.5 flex items-center justify-center">
+        /* Normal Card Layout inside Upper Dashboard: Compact horizontal integration alongside text */
+        <div className="flex items-center gap-2.5 sm:gap-3 flex-1 w-full my-auto">
+          {/* Lunar Sphere with real-time photographic shading and topocentric tilt */}
+          <div className="relative shrink-0 flex items-center justify-center">
             <canvas
               ref={canvasRef}
-              style={{ width: 96, height: 96 }}
-              className="rounded-full shadow-md block bg-black/40"
+              style={{ width: 54, height: 54 }}
+              className="rounded-full shadow-md block bg-black/60 border border-sky-400/50"
             />
           </div>
 
           {/* Synodic Lunar Metrics Text Readout */}
-          <div className="w-full text-center space-y-1">
-            <div className="text-xs sm:text-[13px] font-bold font-mono text-slate-950 tracking-tight">
+          <div className="min-w-0 flex-1 space-y-0.5 font-mono">
+            <div className="text-xs sm:text-[13px] font-bold text-slate-950 tracking-tight truncate" title={metrics.phaseName}>
               {metrics.phaseName}
             </div>
-            <div className="flex items-center justify-between text-[11px] font-mono text-slate-700 px-0.5 font-medium">
-              <span>Age:</span>
-              <span className="font-bold text-slate-950">{metrics.lunarAgeText}</span>
-            </div>
-            <div className="flex items-center justify-between text-[11px] font-mono text-slate-700 px-0.5 font-medium">
+            <div className="flex items-center justify-between text-[11px] text-slate-700 font-medium">
               <span>Illum:</span>
-              <span className="font-bold text-indigo-900">{illuminationPercentText}</span>
+              <span className="font-bold text-indigo-950">{illuminationPercentText}</span>
+            </div>
+            <div className="flex items-center justify-between text-[10.5px] text-slate-600 font-medium">
+              <span>Age:</span>
+              <span className="font-bold text-slate-900">{metrics.lunarAgeText}</span>
             </div>
           </div>
         </div>

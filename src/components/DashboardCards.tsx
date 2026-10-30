@@ -37,18 +37,20 @@ export const DashboardCards: React.FC<DashboardCardsProps> = ({
       {/* 6 Individual Ephemeris Cards (Solar + Lunar) with Soft Light-Blue Background Accent */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
         {/* Card 1: Sunrise */}
-        <div className="p-3.5 sm:p-4 rounded-xl bg-[#e0f2fe] border border-sky-300 shadow-sm relative overflow-hidden group hover:border-sky-400 transition">
-          <div className="flex items-center justify-between text-xs mb-1.5 font-medium">
-            <span className="flex items-center gap-1.5 text-amber-800 font-bold">
-              <Sunrise className="w-4 h-4 text-amber-600 shrink-0" />
-              Sunrise
-            </span>
-            <span className="text-[11px] font-mono text-slate-700 font-semibold">Dawn</span>
+        <div className="p-3.5 sm:p-4 rounded-xl bg-[#e0f2fe] border border-sky-300 shadow-sm relative overflow-hidden group hover:border-sky-400 transition flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between text-xs mb-1 font-medium">
+              <span className="flex items-center gap-1.5 text-amber-800 font-bold">
+                <Sunrise className="w-4 h-4 text-amber-600 shrink-0" />
+                Sunrise
+              </span>
+              <span className="text-[11px] font-mono text-slate-700 font-semibold">Dawn</span>
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-slate-950 tabular-nums">
+              {isPolarDay ? '24h Sun' : isPolarNight ? 'No Rise' : formatHours(sunrise)}
+            </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-slate-950 tabular-nums">
-            {isPolarDay ? '24h Sun' : isPolarNight ? 'No Rise' : formatHours(sunrise)}
-          </div>
-          <div className="mt-1 text-[11px] font-mono text-slate-700 flex items-center justify-between font-medium">
+          <div className="mt-1.5 text-[11px] font-mono text-slate-700 flex items-center justify-between font-medium">
             <span>Civil Dawn:</span>
             <span className="text-slate-950 font-bold">{formatHours(civilDawn)}</span>
           </div>
@@ -56,18 +58,20 @@ export const DashboardCards: React.FC<DashboardCardsProps> = ({
         </div>
 
         {/* Card 2: Solar Peak (Transit) */}
-        <div className="p-3.5 sm:p-4 rounded-xl bg-[#e0f2fe] border border-sky-300 shadow-sm relative overflow-hidden group hover:border-sky-400 transition">
-          <div className="flex items-center justify-between text-xs mb-1.5 font-medium">
-            <span className="flex items-center gap-1.5 text-amber-800 font-bold">
-              <Sun className="w-4 h-4 text-amber-600 shrink-0" />
-              Solar Peak
-            </span>
-            <span className="text-[11px] font-mono text-slate-700 font-semibold">Transit</span>
+        <div className="p-3.5 sm:p-4 rounded-xl bg-[#e0f2fe] border border-sky-300 shadow-sm relative overflow-hidden group hover:border-sky-400 transition flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between text-xs mb-1 font-medium">
+              <span className="flex items-center gap-1.5 text-amber-800 font-bold">
+                <Sun className="w-4 h-4 text-amber-600 shrink-0" />
+                Solar Peak
+              </span>
+              <span className="text-[11px] font-mono text-slate-700 font-semibold">Transit</span>
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-slate-950 tabular-nums">
+              {formatHours(solarNoon)}
+            </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-slate-950 tabular-nums">
-            {formatHours(solarNoon)}
-          </div>
-          <div className="mt-1 text-[11px] font-mono text-slate-700 flex items-center justify-between font-medium">
+          <div className="mt-1.5 text-[11px] font-mono text-slate-700 flex items-center justify-between font-medium">
             <span>Current Alt:</span>
             <span className={`font-bold ${elevationDeg >= 0 ? 'text-amber-700' : 'text-blue-700'}`}>
               {elevationDeg.toFixed(1)}°
@@ -77,18 +81,20 @@ export const DashboardCards: React.FC<DashboardCardsProps> = ({
         </div>
 
         {/* Card 3: Sunset */}
-        <div className="p-3.5 sm:p-4 rounded-xl bg-[#e0f2fe] border border-sky-300 shadow-sm relative overflow-hidden group hover:border-sky-400 transition">
-          <div className="flex items-center justify-between text-xs mb-1.5 font-medium">
-            <span className="flex items-center gap-1.5 text-orange-800 font-bold">
-              <Sunset className="w-4 h-4 text-orange-600 shrink-0" />
-              Sunset
-            </span>
-            <span className="text-[11px] font-mono text-slate-700 font-semibold">Dusk</span>
+        <div className="p-3.5 sm:p-4 rounded-xl bg-[#e0f2fe] border border-sky-300 shadow-sm relative overflow-hidden group hover:border-sky-400 transition flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between text-xs mb-1 font-medium">
+              <span className="flex items-center gap-1.5 text-orange-800 font-bold">
+                <Sunset className="w-4 h-4 text-orange-600 shrink-0" />
+                Sunset
+              </span>
+              <span className="text-[11px] font-mono text-slate-700 font-semibold">Dusk</span>
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-slate-950 tabular-nums">
+              {isPolarDay ? '24h Sun' : isPolarNight ? 'No Set' : formatHours(sunset)}
+            </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-slate-950 tabular-nums">
-            {isPolarDay ? '24h Sun' : isPolarNight ? 'No Set' : formatHours(sunset)}
-          </div>
-          <div className="mt-1 text-[11px] font-mono text-slate-700 flex items-center justify-between font-medium">
+          <div className="mt-1.5 text-[11px] font-mono text-slate-700 flex items-center justify-between font-medium">
             <span>Civil Dusk:</span>
             <span className="text-slate-950 font-bold">{formatHours(civilDusk)}</span>
           </div>
@@ -96,18 +102,20 @@ export const DashboardCards: React.FC<DashboardCardsProps> = ({
         </div>
 
         {/* Card 4: Solar Nadir (Anti-Transit) */}
-        <div className="p-3.5 sm:p-4 rounded-xl bg-[#e0f2fe] border border-sky-300 shadow-sm relative overflow-hidden group hover:border-sky-400 transition">
-          <div className="flex items-center justify-between text-xs mb-1.5 font-medium">
-            <span className="flex items-center gap-1.5 text-blue-900 font-bold">
-              <Moon className="w-4 h-4 text-blue-700 shrink-0" />
-              Solar Nadir
-            </span>
-            <span className="text-[11px] font-mono text-slate-700 font-semibold">Anti-Transit</span>
+        <div className="p-3.5 sm:p-4 rounded-xl bg-[#e0f2fe] border border-sky-300 shadow-sm relative overflow-hidden group hover:border-sky-400 transition flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between text-xs mb-1 font-medium">
+              <span className="flex items-center gap-1.5 text-blue-900 font-bold">
+                <Moon className="w-4 h-4 text-blue-700 shrink-0" />
+                Solar Nadir
+              </span>
+              <span className="text-[11px] font-mono text-slate-700 font-semibold">Anti-Transit</span>
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-slate-950 tabular-nums">
+              {formatHours(solarNadir)}
+            </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold font-mono tracking-tight text-slate-950 tabular-nums">
-            {formatHours(solarNadir)}
-          </div>
-          <div className="mt-1 text-[11px] font-mono text-slate-700 flex items-center justify-between font-medium">
+          <div className="mt-1.5 text-[11px] font-mono text-slate-700 flex items-center justify-between font-medium">
             <span>Night Span:</span>
             <span className="text-slate-950 font-bold">{formatDuration(nightHours)}</span>
           </div>
