@@ -301,12 +301,12 @@ export default function App() {
         onResetToLiveNow={handleResetToLiveNow}
       />
 
-      {/* Main Content Workspace (Dark Theme Background - Expands 100% Edge-to-Edge in Fullscreen) */}
+      {/* Main Content Workspace (Full-Width Edge-to-Edge Layout - Clean Padding on Small Screens) */}
       <main
-        className={`flex-1 w-full mx-auto space-y-6 transition-all duration-300 landscape-fullscreen-pad ${
+        className={`flex-1 w-full space-y-6 transition-all duration-300 landscape-fullscreen-pad ${
           isFullscreen
-            ? 'max-w-none px-2 sm:px-4 py-3'
-            : 'max-w-7xl px-3 sm:px-6 lg:px-8 py-5 sm:py-7'
+            ? 'px-2 sm:px-4 py-3'
+            : 'px-3 sm:px-6 lg:px-8 py-5 sm:py-7'
         }`}
       >
         {/* Dashboard Display Section with isolated soft light-blue card surfaces */}
