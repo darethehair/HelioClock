@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sunrise, Sunset, Sun, Moon, Clock, TrendingDown, TrendingUp } from 'lucide-react';
+import { Sunrise, Sunset, Sun, Moon, Clock, TrendingDown, TrendingUp, Sparkles } from 'lucide-react';
 import {
   SolarDayData,
   CurrentSolarPosition,
@@ -182,6 +182,60 @@ export const DashboardCards: React.FC<DashboardCardsProps> = ({
           latitude={latitude}
           longitude={longitude}
         />
+      </div>
+
+      {/* Compact Golden Hour (+6° Threshold) Telemetry Info Box */}
+      <div className="mt-2.5 sm:mt-3 p-3 sm:p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+            <Sparkles className="w-4 h-4 text-amber-400" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-amber-200 uppercase tracking-wider text-[11px]">
+                +6° Golden Hour
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+                  currentPos.isGoldenHour
+                    ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-[0_0_8px_rgba(250,204,21,0.6)] animate-pulse'
+                    : 'bg-slate-900/80 text-slate-400 border-slate-700'
+                }`}
+              >
+                {currentPos.isGoldenHour ? '● Active Now' : '○ Inactive'}
+              </span>
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              Sun elevation between 0° (horizon) and +6° above horizon
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 sm:gap-6 font-mono text-xs">
+          <div className="flex flex-col">
+            <span className="text-[10px] text-amber-300/80 font-sans uppercase font-semibold">Morning Golden Hour</span>
+            <span className="text-slate-100 font-bold">
+              {todayData.goldenHourMorningStart !== null && todayData.goldenHourMorningEnd !== null
+                ? `${formatHours(todayData.goldenHourMorningStart)} → ${formatHours(todayData.goldenHourMorningEnd)}`
+                : isPolarDay
+                ? 'Sun > +6° (Continuous Day)'
+                : 'None (Polar Night)'}
+            </span>
+          </div>
+
+          <div className="h-6 w-px bg-amber-500/30" />
+
+          <div className="flex flex-col">
+            <span className="text-[10px] text-amber-300/80 font-sans uppercase font-semibold">Evening Golden Hour</span>
+            <span className="text-slate-100 font-bold">
+              {todayData.goldenHourEveningStart !== null && todayData.goldenHourEveningEnd !== null
+                ? `${formatHours(todayData.goldenHourEveningStart)} → ${formatHours(todayData.goldenHourEveningEnd)}`
+                : isPolarDay
+                ? 'Sun > +6° (Continuous Day)'
+                : 'None (Polar Night)'}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );

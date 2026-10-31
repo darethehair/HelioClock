@@ -298,13 +298,19 @@ export const SolarYearChart: React.FC<SolarYearChartProps> = ({
     }
 
     // Helper to build a continuous line path
-    function makeLinePath(getYVal: (d: SolarDayData) => number) {
+    function makeLinePath(getYVal: (d: SolarDayData) => number, isValid?: (d: SolarDayData) => boolean) {
       let path = '';
+      let inSegment = false;
       for (let i = 0; i < days.length; i++) {
         const d = days[i];
+        if (isValid && !isValid(d)) {
+          inSegment = false;
+          continue;
+        }
         const x = getX(d.dayOfYear);
         const y = getYVal(d);
-        path += `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)} `;
+        path += `${!inSegment ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)} `;
+        inSegment = true;
       }
       return path;
     }
@@ -314,6 +320,30 @@ export const SolarYearChart: React.FC<SolarYearChartProps> = ({
     const daylightPath = makeBandPolygon(
       (d) => (d.sunset !== null ? d.sunset : d.isPolarDay ? 24 : d.solarNoon),
       (d) => (d.sunrise !== null ? d.sunrise : d.isPolarDay ? 0 : d.solarNoon)
+    );
+
+    // 1b. Golden Hour Morning Band (Sunrise to +6° Altitude)
+    const goldenHourMorningBand = makeBandPolygon(
+      (d) => (d.goldenHourMorningEnd !== null ? d.goldenHourMorningEnd : d.sunrise !== null ? d.sunrise : d.solarNoon),
+      (d) => (d.sunrise !== null ? d.sunrise : d.isPolarDay ? 0 : d.solarNoon)
+    );
+
+    // 1c. Golden Hour Evening Band (+6° Altitude to Sunset)
+    const goldenHourEveningBand = makeBandPolygon(
+      (d) => (d.sunset !== null ? d.sunset : d.isPolarDay ? 24 : d.solarNoon),
+      (d) => (d.goldenHourEveningStart !== null ? d.goldenHourEveningStart : d.sunset !== null ? d.sunset : d.solarNoon)
+    );
+
+    // +6° Golden Hour Morning Threshold Curve (Thin Dashed Golden Curve)
+    const goldenHourMorningCurve = makeLinePath(
+      (d) => getYLeft(d.goldenHourMorningEnd!),
+      (d) => d.goldenHourMorningEnd !== null
+    );
+
+    // +6° Golden Hour Evening Threshold Curve (Thin Dashed Golden Curve)
+    const goldenHourEveningCurve = makeLinePath(
+      (d) => getYLeft(d.goldenHourEveningStart!),
+      (d) => d.goldenHourEveningStart !== null
     );
 
     // 2. Civil Twilight Morning (Civil Dawn to Sunrise)
@@ -363,6 +393,10 @@ export const SolarYearChart: React.FC<SolarYearChartProps> = ({
 
     return {
       daylightPath,
+      goldenHourMorningBand,
+      goldenHourEveningBand,
+      goldenHourMorningCurve,
+      goldenHourEveningCurve,
       civilDawnBand,
       civilDuskBand,
       nauticalDawnBand,
@@ -523,8 +557,12 @@ export const SolarYearChart: React.FC<SolarYearChartProps> = ({
         {/* Legend with Mobile Responsive Override & Fullscreen Control */}
         <div className="flex items-center gap-2 sm:gap-3 text-sm sm:text-[11px] font-mono flex-wrap">
           <div className="flex items-center gap-1.5 py-1 px-1.5 rounded bg-slate-900/60 sm:bg-transparent chart-legend-text">
-            <span className="w-3.5 h-3.5 sm:w-3 sm:h-3 rounded-sm bg-[#bae6fd] border border-sky-300" />
+            <span className="w-3.5 h-3.5 sm:w-3 sm:h-3 rounded-sm bg-[#7dd3fc] border border-sky-400" />
             <span className="text-slate-200 font-bold sm:font-medium">Daylight</span>
+          </div>
+          <div className="flex items-center gap-1.5 py-1 px-1.5 rounded bg-amber-950/40 sm:bg-transparent border border-amber-800/40 sm:border-0 chart-legend-text">
+            <span className="w-3.5 h-3.5 sm:w-3 sm:h-3 rounded-sm bg-[#f59e0b] border border-amber-300" />
+            <span className="text-amber-300 font-bold sm:font-medium">Golden (+6°)</span>
           </div>
           <div className="flex items-center gap-1.5 py-1 px-1.5 rounded bg-slate-900/60 sm:bg-transparent chart-legend-text">
             <span className="w-3.5 h-3.5 sm:w-3 sm:h-3 rounded-sm bg-blue-600" />
@@ -622,6 +660,12 @@ export const SolarYearChart: React.FC<SolarYearChartProps> = ({
               <stop offset="0%" stopColor="#080c14" />
               <stop offset="100%" stopColor="#000000" />
             </radialGradient>
+
+            {/* Daytime Sky Gradient matching the Rectangular Sky Plot exactly */}
+            <linearGradient id="chart-sky-daylight-gradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#0284c7" />
+              <stop offset="100%" stopColor="#7dd3fc" />
+            </linearGradient>
           </defs>
 
           {/* 1. Stark Black Night Base Canvas */}
@@ -648,8 +692,34 @@ export const SolarYearChart: React.FC<SolarYearChartProps> = ({
               <path d={chartPaths.civilDawnBand} fill="#2563eb" opacity="0.95" />
               <path d={chartPaths.civilDuskBand} fill="#2563eb" opacity="0.95" />
 
-              {/* Center Daylight Core: Soft Lighter-Blue (#bae6fd) */}
-              <path d={chartPaths.daylightPath} fill="#bae6fd" opacity="0.96" />
+              {/* Center Daylight Core: Light Blue Gradient matching Rectangular Sky Plot */}
+              <path d={chartPaths.daylightPath} fill="url(#chart-sky-daylight-gradient)" opacity="0.96" />
+
+              {/* Golden Hour (0° to +6°) Shaded Bands */}
+              <path d={chartPaths.goldenHourMorningBand} fill="#f59e0b" opacity="0.32" />
+              <path d={chartPaths.goldenHourEveningBand} fill="#f59e0b" opacity="0.32" />
+
+              {/* +6° Golden Hour Threshold Curves (Thin Dashed Golden Lines) */}
+              {chartPaths.goldenHourMorningCurve && (
+                <path
+                  d={chartPaths.goldenHourMorningCurve}
+                  fill="none"
+                  stroke="#facc15"
+                  strokeWidth="1.2"
+                  strokeDasharray="3 3"
+                  opacity="0.85"
+                />
+              )}
+              {chartPaths.goldenHourEveningCurve && (
+                <path
+                  d={chartPaths.goldenHourEveningCurve}
+                  fill="none"
+                  stroke="#facc15"
+                  strokeWidth="1.2"
+                  strokeDasharray="3 3"
+                  opacity="0.85"
+                />
+              )}
 
               {/* Solar Peak (Transit / Solar Noon) Hairline Curve */}
               <path

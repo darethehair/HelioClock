@@ -232,26 +232,25 @@ export function drawSunTrajectory(
   projectCoord: (az: number, alt: number) => { x: number; y: number }
 ) {
   ctx.save();
-  ctx.strokeStyle = '#f59e0b';
-  ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.75;
-  ctx.setLineDash([4, 4]);
-
   for (const seg of sunTrajectory) {
     if (seg.points.length < 2) continue;
-    ctx.beginPath();
-    let started = false;
-    for (const pt of seg.points) {
-      if (pt.alt < 0) continue;
-      const screenPt = projectCoord(pt.az, pt.alt);
-      if (!started) {
-        ctx.moveTo(screenPt.x, screenPt.y);
-        started = true;
-      } else {
-        ctx.lineTo(screenPt.x, screenPt.y);
-      }
+    for (let i = 0; i < seg.points.length - 1; i++) {
+      const p1 = seg.points[i];
+      const p2 = seg.points[i + 1];
+      if (p1.alt < 0 && p2.alt < 0) continue;
+      const isGolden = (p1.alt + p2.alt) / 2 <= 6.0;
+      const pt1 = projectCoord(p1.az, p1.alt);
+      const pt2 = projectCoord(p2.az, p2.alt);
+
+      ctx.beginPath();
+      ctx.moveTo(pt1.x, pt1.y);
+      ctx.lineTo(pt2.x, pt2.y);
+      ctx.strokeStyle = isGolden ? '#facc15' : '#f59e0b';
+      ctx.lineWidth = isGolden ? 1.8 : 1;
+      ctx.setLineDash(isGolden ? [3, 3] : [4, 4]);
+      ctx.globalAlpha = isGolden ? 0.95 : 0.75;
+      ctx.stroke();
     }
-    if (started) ctx.stroke();
   }
   ctx.restore();
 }
@@ -627,27 +626,101 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
     return projectCoord(ephemeris.moon.azimuth, ephemeris.moon.altitude);
   }, [ephemeris.moon, projectCoord]);
 
-  // Trajectory paths for Circular Polar Projection (Filtered strictly to points above the horizon: alt >= 0)
-  const polarSunTrajectory = useMemo(() => {
-    if (projectionMode !== 'polar') return [];
-    const paths: string[] = [];
+  // Sun Trajectory segments for Equirectangular View split at +6° Golden Hour boundary
+  const equirectangularSunSegments = useMemo(() => {
+    if (projectionMode !== 'equirectangular') return [];
+    const segments: { path: string; isGolden: boolean }[] = [];
     for (const seg of ephemeris.sunTrajectory) {
-      let chunk: { x: number; y: number }[] = [];
-      for (const pt of seg.points) {
-        if (pt.alt >= 0) {
-          chunk.push(projectCoord(pt.az, pt.alt));
+      if (!seg.points || seg.points.length < 2) continue;
+      let currentChunk: { x: number; y: number }[] = [];
+      let currentIsGolden: boolean | null = null;
+
+      for (let i = 0; i < seg.points.length; i++) {
+        const pt = seg.points[i];
+        if (pt.alt < 0) continue;
+        const isPtGolden = pt.alt <= 6.0;
+        const screenPt = projectCoord(pt.az, pt.alt);
+
+        if (currentIsGolden === null) {
+          currentIsGolden = isPtGolden;
+          currentChunk.push(screenPt);
+        } else if (currentIsGolden === isPtGolden) {
+          currentChunk.push(screenPt);
         } else {
-          if (chunk.length >= 2) {
-            paths.push('M ' + chunk.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '));
+          currentChunk.push(screenPt);
+          if (currentChunk.length >= 2) {
+            segments.push({
+              path: 'M ' + currentChunk.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '),
+              isGolden: currentIsGolden,
+            });
           }
-          chunk = [];
+          currentChunk = [screenPt];
+          currentIsGolden = isPtGolden;
         }
       }
-      if (chunk.length >= 2) {
-        paths.push('M ' + chunk.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '));
+
+      if (currentChunk.length >= 2 && currentIsGolden !== null) {
+        segments.push({
+          path: 'M ' + currentChunk.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '),
+          isGolden: currentIsGolden,
+        });
       }
     }
-    return paths;
+    return segments;
+  }, [projectionMode, ephemeris.sunTrajectory, projectCoord]);
+
+  // Trajectory paths for Circular Polar Projection with +6° Golden Hour color split
+  const polarSunTrajectory = useMemo(() => {
+    if (projectionMode !== 'polar') return [];
+    const segments: { path: string; isGolden: boolean }[] = [];
+    for (const seg of ephemeris.sunTrajectory) {
+      if (!seg.points || seg.points.length < 2) continue;
+      let currentChunk: { x: number; y: number }[] = [];
+      let currentIsGolden: boolean | null = null;
+
+      for (let i = 0; i < seg.points.length; i++) {
+        const pt = seg.points[i];
+        if (pt.alt < 0) {
+          if (currentChunk.length >= 2 && currentIsGolden !== null) {
+            segments.push({
+              path: 'M ' + currentChunk.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '),
+              isGolden: currentIsGolden,
+            });
+          }
+          currentChunk = [];
+          currentIsGolden = null;
+          continue;
+        }
+
+        const isPtGolden = pt.alt <= 6.0;
+        const screenPt = projectCoord(pt.az, pt.alt);
+
+        if (currentIsGolden === null) {
+          currentIsGolden = isPtGolden;
+          currentChunk.push(screenPt);
+        } else if (currentIsGolden === isPtGolden) {
+          currentChunk.push(screenPt);
+        } else {
+          currentChunk.push(screenPt);
+          if (currentChunk.length >= 2) {
+            segments.push({
+              path: 'M ' + currentChunk.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '),
+              isGolden: currentIsGolden,
+            });
+          }
+          currentChunk = [screenPt];
+          currentIsGolden = isPtGolden;
+        }
+      }
+
+      if (currentChunk.length >= 2 && currentIsGolden !== null) {
+        segments.push({
+          path: 'M ' + currentChunk.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '),
+          isGolden: currentIsGolden,
+        });
+      }
+    }
+    return segments;
   }, [projectionMode, ephemeris.sunTrajectory, projectCoord]);
 
   const polarMoonTrajectory = useMemo(() => {
@@ -1588,21 +1661,73 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                     0° TRUE HORIZON
                   </text>
                 </g>
+
+                {/* +6° Golden Hour Shaded Band (0° to +6° Altitude) */}
+                <rect
+                  x={paddingLeft}
+                  y={paddingTop + ((90 - 6) / 180) * plotHeight}
+                  width={plotWidth}
+                  height={(6 / 180) * plotHeight}
+                  fill="#f59e0b"
+                  fillOpacity="0.14"
+                  className="skymap-golden-hour-band select-none pointer-events-none"
+                />
+
+                {/* +6° Golden Hour Thin Dashed Reference Line */}
+                <line
+                  x1={paddingLeft}
+                  y1={paddingTop + ((90 - 6) / 180) * plotHeight}
+                  x2={paddingLeft + plotWidth}
+                  y2={paddingTop + ((90 - 6) / 180) * plotHeight}
+                  stroke="#f59e0b"
+                  strokeWidth="1.2"
+                  strokeDasharray="4 3"
+                  strokeOpacity="0.85"
+                  className="skymap-golden-hour-line select-none pointer-events-none"
+                />
+
+                {/* +6° Golden Hour Label */}
+                <g transform={`translate(${paddingLeft + plotWidth - (isMobileLandscape && isFullscreen ? 165 : 138)}, ${paddingTop + ((90 - 6) / 180) * plotHeight - 13})`}>
+                  <rect
+                    x="0"
+                    y="0"
+                    width={isMobileLandscape && isFullscreen ? "152" : "128"}
+                    height="14"
+                    rx="3"
+                    fill="#020617"
+                    fillOpacity="0.88"
+                    stroke="#f59e0b"
+                    strokeWidth="0.8"
+                  />
+                  <text
+                    x={isMobileLandscape && isFullscreen ? "76" : "64"}
+                    y="10"
+                    textAnchor="middle"
+                    fill="#fbbf24"
+                    fontSize="8.5"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    letterSpacing="0.04em"
+                    className="skymap-golden-hour-badge select-none pointer-events-none"
+                  >
+                    +6° GOLDEN HOUR
+                  </text>
+                </g>
               </g>
 
               {/* 5. LAYER: DOTTED PATHS (Strictly above 0° True Horizon) */}
               {showPaths && (
                 <g clipPath="url(#sky-hemisphere-clip)">
-                  {/* Sun 24-Hour Diurnal Trajectory: Crisp Orange Dotted Arc above 0° True Horizon */}
-                  {ephemeris.sunTrajectory.map((seg, idx) => (
+                  {/* Sun 24-Hour Diurnal Trajectory: Gold inside 0°–6° Golden Hour band, orange above */}
+                  {equirectangularSunSegments.map((seg, idx) => (
                     <path
                       key={`sun-traj-${idx}`}
-                      d={seg.svgPath}
+                      d={seg.path}
                       fill="none"
-                      stroke="#f59e0b"
-                      strokeWidth="1"
-                      strokeDasharray="4 4"
-                      strokeOpacity="0.75"
+                      stroke={seg.isGolden ? '#facc15' : '#f59e0b'}
+                      strokeWidth={seg.isGolden ? '2' : '1.2'}
+                      strokeDasharray={seg.isGolden ? '3 2' : '4 4'}
+                      strokeOpacity={seg.isGolden ? '0.95' : '0.75'}
                       strokeLinecap="round"
                       className="skymap-path-sun"
                     />
@@ -1915,21 +2040,75 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                     0° TRUE HORIZON
                   </text>
                 </g>
+
+                {/* +6° Golden Hour Annular Shaded Ring (0° to +6° Altitude) */}
+                <circle
+                  cx={polarCenter.x}
+                  cy={polarCenter.y}
+                  r={(polarRadius + polarRadius * (84 / 90)) / 2}
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth={polarRadius * (6 / 90)}
+                  strokeOpacity="0.14"
+                  className="skymap-golden-hour-polar-ring select-none pointer-events-none"
+                />
+
+                {/* +6° Golden Hour Dashed Concentric Reference Ring */}
+                <circle
+                  cx={polarCenter.x}
+                  cy={polarCenter.y}
+                  r={polarRadius * (84 / 90)}
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth="1.2"
+                  strokeDasharray="4 3"
+                  strokeOpacity="0.8"
+                  className="skymap-golden-hour-polar-line select-none pointer-events-none"
+                />
+
+                {/* +6° Golden Hour Indicator Badge in Polar Mode */}
+                <g transform={`translate(${polarCenter.x + polarRadius * 0.44}, ${polarCenter.y + polarRadius * 0.58})`}>
+                  <rect
+                    x="0"
+                    y="0"
+                    width="104"
+                    height="14"
+                    rx="3"
+                    fill="#020617"
+                    fillOpacity="0.88"
+                    stroke="#f59e0b"
+                    strokeWidth="0.6"
+                    strokeOpacity="0.8"
+                  />
+                  <text
+                    x="52"
+                    y="10"
+                    textAnchor="middle"
+                    fill="#fbbf24"
+                    fontSize="8"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    letterSpacing="0.04em"
+                    className="select-none pointer-events-none"
+                  >
+                    +6° GOLDEN HOUR
+                  </text>
+                </g>
               </g>
 
               {/* 5. LAYER: DOTTED PATHS IN POLAR MODE (Strictly above 0° Horizon) */}
               {showPaths && (
                 <g clipPath="url(#polar-horizon-clip)">
-                  {/* Sun Diurnal Trajectory: Crisp Orange Dotted Arc above horizon */}
-                  {polarSunTrajectory.map((pathStr, idx) => (
+                  {/* Sun Diurnal Trajectory: Gold inside 0°–6° Golden Hour band, orange above */}
+                  {polarSunTrajectory.map((seg, idx) => (
                     <path
                       key={`polar-sun-traj-${idx}`}
-                      d={pathStr}
+                      d={seg.path}
                       fill="none"
-                      stroke="#f59e0b"
-                      strokeWidth="1"
-                      strokeDasharray="4 4"
-                      strokeOpacity="0.75"
+                      stroke={seg.isGolden ? '#facc15' : '#f59e0b'}
+                      strokeWidth={seg.isGolden ? '2' : '1.2'}
+                      strokeDasharray={seg.isGolden ? '3 2' : '4 4'}
+                      strokeOpacity={seg.isGolden ? '0.95' : '0.75'}
                       strokeLinecap="round"
                       className="skymap-path-sun"
                     />
@@ -2946,6 +3125,11 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 <span className="text-amber-300 font-bold">
                   Alt {ephemeris.sun.altitude >= 0 ? '+' : ''}{ephemeris.sun.altitude.toFixed(1)}°, Az {ephemeris.sun.azimuth.toFixed(1)}°
                 </span>
+                {ephemeris.sun.altitude >= 0 && ephemeris.sun.altitude <= 6.0 && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-400 text-slate-950 border border-amber-300 shadow-xs">
+                    Golden Hour (+6°)
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-1.5">

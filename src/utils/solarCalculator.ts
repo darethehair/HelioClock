@@ -27,6 +27,10 @@ export interface SolarDayData {
   astroDawn: number | null;
   astroDusk: number | null;
   daylightHours: number; // 0 to 24
+  goldenHourMorningStart: number | null; // Sunrise
+  goldenHourMorningEnd: number | null;   // Morning +6°
+  goldenHourEveningStart: number | null; // Evening +6°
+  goldenHourEveningEnd: number | null;   // Sunset
   declinationDeg: number;
   equationOfTimeMin: number;
   isPolarDay: boolean;
@@ -44,6 +48,7 @@ export interface CurrentSolarPosition {
   daylightHours: number;
   daylightProgress: number; // 0 to 1
   isDaytime: boolean;
+  isGoldenHour: boolean; // Elevation between -0.8333° (or 0°) and +6.0°
   twilightState: 'night' | 'astronomical' | 'nautical' | 'civil' | 'daylight';
 }
 
@@ -244,6 +249,32 @@ export function calculateSolarDay(
   const isPolarDay = daylight.durationHours >= 24;
   const isPolarNight = daylight.durationHours <= 0;
 
+  // Golden Hour Threshold: altitude = +6.0°
+  const goldenHourThreshold = calculateSunTimesForAltitude(6.0);
+  let ghMorningStart: number | null = daylight.rise;
+  let ghMorningEnd: number | null = goldenHourThreshold.rise;
+  let ghEveningStart: number | null = goldenHourThreshold.set;
+  let ghEveningEnd: number | null = daylight.set;
+
+  if (isPolarNight) {
+    ghMorningStart = null;
+    ghMorningEnd = null;
+    ghEveningStart = null;
+    ghEveningEnd = null;
+  } else if (goldenHourThreshold.durationHours <= 0) {
+    // Sun rises above horizon but never exceeds +6°: entire daylight is Golden Hour
+    ghMorningStart = daylight.rise;
+    ghMorningEnd = daylight.set !== null && daylight.rise !== null ? (daylight.rise + daylight.set) / 2 : normalizedNoon;
+    ghEveningStart = ghMorningEnd;
+    ghEveningEnd = daylight.set;
+  } else if (goldenHourThreshold.durationHours >= 24) {
+    // Sun never drops below +6° (continuous high sun)
+    ghMorningStart = null;
+    ghMorningEnd = null;
+    ghEveningStart = null;
+    ghEveningEnd = null;
+  }
+
   // Construct readable date
   const dateObj = new Date(year, 0, dayOfYear);
   const dateString = dateObj.toLocaleDateString(undefined, {
@@ -266,6 +297,10 @@ export function calculateSolarDay(
     astroDawn: astro.rise,
     astroDusk: astro.set,
     daylightHours: daylight.durationHours,
+    goldenHourMorningStart: ghMorningStart,
+    goldenHourMorningEnd: ghMorningEnd,
+    goldenHourEveningStart: ghEveningStart,
+    goldenHourEveningEnd: ghEveningEnd,
     declinationDeg: declDeg,
     equationOfTimeMin: eqTimeMin,
     isPolarDay,
@@ -419,6 +454,7 @@ export function calculateRealTimeSunPosition(
     daylightHours: dayData.daylightHours,
     daylightProgress: Math.max(0, Math.min(1, daylightProgress)),
     isDaytime,
+    isGoldenHour: elevationDeg >= -0.8333 && elevationDeg <= 6.0,
     twilightState,
   };
 }
