@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { geoEqualEarth, geoMercator, geoOrthographic, geoPath, geoCircle, geoGraticule, geoDistance } from 'd3-geo';
+import { geoEqualEarth, geoMercator, geoOrthographic, geoPath, geoCircle, geoDistance } from 'd3-geo';
 import * as topojson from 'topojson-client';
 import worldData from 'world-atlas/land-110m.json';
 import countriesData from 'world-atlas/countries-110m.json';
-import { Globe, Sun, Moon, MapPin, Compass, Play, Pause, RotateCcw, Sparkles, MoveHorizontal, Move, Maximize2, Minimize2 } from 'lucide-react';
+import { Globe, Sun, Moon, MapPin, Compass, Play, Pause, RotateCcw, Sparkles, MoveHorizontal, Move, Maximize2, Minimize2, Grid } from 'lucide-react';
 import { calculateSubsolarPoint } from '../utils/solarCalculator';
 import { useElementFullscreen } from '../hooks/useElementFullscreen';
 import { useClickRing } from '../hooks/useClickRing';
@@ -330,6 +330,29 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
     });
   }, []);
 
+  // Toggleable latitude/longitude graticule overlay (persisted in localStorage)
+  const [showGraticule, setShowGraticule] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const saved = localStorage.getItem('helioclock_map_grid');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleGraticule = useCallback(() => {
+    setShowGraticule((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('helioclock_map_grid', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
+
 
   // Time offset scrubber for interactive solar shadow exploration (-12 to +12 hours)
   const [timeOffsetHours, setTimeOffsetHours] = useState<number>(0);
@@ -412,7 +435,8 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
       return geoOrthographic()
         .rotate([-currentLongitude, -currentLatitude])
         .scale(globeRadius)
-        .translate([width / 2, height / 2]);
+        .translate([width / 2, height / 2])
+        .clipAngle(90);
     } else if (projectionType === 'mercator') {
       // Rectangular world matrix: strictly horizontal longitude dragging, vertical locked to equator
       const proj = geoMercator()
@@ -439,19 +463,78 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
     return geoPath().projection(projection);
   }, [projection]);
 
-  // Extract land and borders GeoJSON from world-atlas
-  const { bordersMesh, sphereOutline, graticulePath } = useMemo(() => {
+  // Extract land, borders, and structured graticule features (15° Grid, Equator, Prime Meridian, Tropics, Polar Circles)
+  const { bordersMesh, sphereOutline, graticulePaths } = useMemo(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const borders = topojson.mesh(countriesData as any, (countriesData as any).objects.countries, (a: any, b: any) => a !== b);
-    const graticule = geoGraticule().step([30, 30])();
     const sphere = { type: 'Sphere' } as const;
+
+    const isMercator = projectionType === 'mercator';
+    // Mercator diverges towards infinity at poles, clamp to ±85°. Equal Earth and Spherical extend full pole-to-pole ±90°.
+    const poleLimit = isMercator ? 85 : 90;
+
+    // Helper to generate dense parallel line across longitude with 1° sampling (361 points)
+    const makeParallel = (lat: number) => ({
+      type: 'LineString' as const,
+      coordinates: Array.from({ length: 361 }, (_, i) => [i - 180, lat] as [number, number]),
+    });
+
+    // Helper to generate dense meridian line along latitude with 1° sampling
+    const makeMeridian = (lon: number, minLat = -poleLimit, maxLat = poleLimit) => ({
+      type: 'LineString' as const,
+      coordinates: Array.from({ length: Math.round(maxLat - minLat + 1) }, (_, i) => [lon, minLat + i] as [number, number]),
+    });
+
+    // Parallels at 15° intervals: -75°, -60°, -45°, -30°, -15°, 15°, 30°, 45°, 60°, 75° (Equator at 0° is separate)
+    const parallelLats = [-75, -60, -45, -30, -15, 15, 30, 45, 60, 75];
+    const parallelsGeo = {
+      type: 'MultiLineString' as const,
+      coordinates: parallelLats.map((lat) =>
+        Array.from({ length: 361 }, (_, i) => [i - 180, lat] as [number, number])
+      ),
+    };
+
+    // Meridians at 15° intervals: -180° to 165° (excluding 0°, which is the Prime Meridian)
+    const meridianLons: number[] = [];
+    for (let lon = -180; lon < 180; lon += 15) {
+      if (lon !== 0) meridianLons.push(lon);
+    }
+    const meridiansGeo = {
+      type: 'MultiLineString' as const,
+      coordinates: meridianLons.map((lon) =>
+        Array.from(
+          { length: Math.round(2 * poleLimit + 1) },
+          (_, i) => [lon, -poleLimit + i] as [number, number]
+        )
+      ),
+    };
+
+    const equatorGeo = makeParallel(0);
+    const primeMeridianGeo = makeMeridian(0);
+    const tropicCancerGeo = makeParallel(23.4365);
+    const tropicCapricornGeo = makeParallel(-23.4365);
+    const arcticCircleGeo = makeParallel(66.5635);
+    const antarcticCircleGeo = makeParallel(-66.5635);
 
     return {
       bordersMesh: pathGenerator(borders) || '',
       sphereOutline: pathGenerator(sphere) || '',
-      graticulePath: pathGenerator(graticule) || '',
+      graticulePaths: {
+        meridians: pathGenerator(meridiansGeo as any) || '',
+        parallels: pathGenerator(parallelsGeo as any) || '',
+        equator: pathGenerator(equatorGeo as any) || '',
+        primeMeridian: pathGenerator(primeMeridianGeo as any) || '',
+        tropics: [
+          pathGenerator(tropicCancerGeo as any) || '',
+          pathGenerator(tropicCapricornGeo as any) || '',
+        ].filter(Boolean).join(' '),
+        polarCircles: [
+          pathGenerator(arcticCircleGeo as any) || '',
+          pathGenerator(antarcticCircleGeo as any) || '',
+        ].filter(Boolean).join(' '),
+      },
     };
-  }, [pathGenerator]);
+  }, [pathGenerator, projectionType]);
 
   // Optimized Canvas Texture Reprojection (Maintains 60 FPS under dragging with 8K texture)
   const renderReprojection = useCallback((
@@ -1125,6 +1208,33 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
             </span>
           </button>
 
+          {/* Toggleable Latitude/Longitude Graticule (Grid) Button */}
+          <button
+            type="button"
+            onClick={toggleGraticule}
+            className={`px-2 py-1 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-mono font-medium transition-all flex items-center gap-1.5 cursor-pointer border ${
+              showGraticule
+                ? 'bg-sky-500/15 text-sky-300 border-sky-500/50 shadow-[0_0_8px_rgba(56,189,248,0.25)] hover:bg-sky-500/25 active:scale-95'
+                : 'bg-slate-900/90 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700 active:scale-95'
+            }`}
+            title={
+              showGraticule
+                ? '15° Lat/Lon Graticule Active (Equator, Prime Meridian, Tropics). Click to hide grid overlay.'
+                : '15° Lat/Lon Graticule Hidden. Click to enable grid overlay.'
+            }
+            aria-pressed={showGraticule}
+          >
+            <Grid className={`w-3 h-3 ${showGraticule ? 'text-sky-400' : 'text-slate-500'}`} />
+            <span className="font-semibold tracking-wider">GRID</span>
+            <span
+              className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold leading-tight ${
+                showGraticule ? 'bg-sky-400/30 text-sky-200' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              {showGraticule ? 'ON' : 'OFF'}
+            </span>
+          </button>
+
           {/* Interactive Dragging Status / Reset Badge */}
           <div className="flex items-center gap-1.5 text-amber-300 font-mono text-[10px] sm:text-[11px]">
             <span>
@@ -1167,6 +1277,15 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
             <span className="w-2.5 h-2.5 rounded-xs bg-[#020617]/90 border border-slate-700" />
             <span className="text-slate-400">Night (&lt; -18°)</span>
           </div>
+
+          {showGraticule && (
+            <div className="hidden xl:flex items-center gap-1.5 text-slate-400 border-l border-slate-800 pl-2">
+              <span className="w-2.5 h-0.5 bg-[#f59e0b] rounded-full" />
+              <span className="text-amber-300/90 text-[10px]">Tropics (±23.4°)</span>
+              <span className="w-2.5 h-0.5 bg-[#38bdf8] rounded-full ml-1" />
+              <span className="text-sky-300/90 text-[10px]">Equator / Meridian</span>
+            </div>
+          )}
 
           {/* Individual Module Fullscreen Toggle Button */}
           <button
@@ -1212,50 +1331,19 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
           }`}
         />
 
-        {/* Dedicated 3D Spherical Globe Lighting & Shadow Canvas (for Orthographic projection mode) */}
-        {projectionType === 'orthographic' && (
-          <canvas
-            ref={globeShadowCanvasRef}
-            width={width}
-            height={height}
-            className="absolute inset-0 w-full h-full object-contain block pointer-events-none"
-          />
-        )}
-
-        {/* Interactive SVG Overlay */}
+        {/* Under-Shadow Base SVG Layer: Country Borders, Graticule & Planar Solar Shadow */}
         <svg
-          ref={svgRef}
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="xMidYMid meet"
           className="absolute inset-0 w-full h-full pointer-events-none"
         >
           <defs>
-            {/* World Outline Clip Path */}
-            <clipPath id="world-map-clip">
+            <clipPath id="world-map-clip-under">
               <path d={sphereOutline} />
             </clipPath>
-
-            {/* Glowing filter for Sun Zenith symbol */}
-            <filter id="sun-zenith-glow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-
-            {/* Glowing filter for terminator boundary */}
-            <filter id="terminator-atmospheric-mist" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blurMist" />
-              <feMerge>
-                <feMergeNode in="blurMist" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
           </defs>
 
-          {/* Map Group clipped strictly to Sphere Boundary */}
-          <g clipPath="url(#world-map-clip)">
+          <g clipPath="url(#world-map-clip-under)">
             {/* 1. National Country Borders & Coastline Vectors */}
             <path
               d={bordersMesh}
@@ -1265,31 +1353,97 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
               strokeOpacity="0.55"
             />
 
-            {/* 2. Graticule Lat/Lon Grid Lines */}
-            <path
-              d={graticulePath}
-              fill="none"
-              stroke="#38bdf8"
-              strokeWidth="0.4"
-              strokeOpacity="0.25"
-              strokeDasharray="2 3"
-            />
+            {/* 2. Graticule Lat/Lon Grid Lines & Key Reference Lines (Sitting Underneath Solar Shadow) */}
+            {showGraticule && (
+              <g className="world-map-graticule-group">
+                {/* Longitude Meridians (15° intervals extending pole to pole) */}
+                <path
+                  d={graticulePaths.meridians}
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth="0.65"
+                  strokeOpacity="0.32"
+                  strokeDasharray="3 3"
+                >
+                  <title>Longitude Meridians (15° intervals, pole to pole)</title>
+                </path>
 
-            {/* 3. Central Meridian Indicator Line */}
-            {projectionType !== 'orthographic' && (
-              <line
-                x1={width / 2}
-                y1={0}
-                x2={width / 2}
-                y2={height}
-                stroke="#38bdf8"
-                strokeWidth="1.2"
-                strokeDasharray="3 3"
-                strokeOpacity="0.45"
-              />
+                {/* Latitude Parallels (15° intervals) */}
+                <path
+                  d={graticulePaths.parallels}
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth="0.65"
+                  strokeOpacity="0.32"
+                  strokeDasharray="3 3"
+                >
+                  <title>Latitude Parallels (15° intervals)</title>
+                </path>
+
+                {/* Polar Circles (Arctic +66.56° & Antarctic -66.56°) */}
+                <path
+                  d={graticulePaths.polarCircles}
+                  fill="none"
+                  stroke="#94a3b8"
+                  strokeWidth="0.80"
+                  strokeOpacity="0.45"
+                  strokeDasharray="3 3"
+                >
+                  <title>Polar Circles (Arctic +66.56° / Antarctic -66.56°)</title>
+                </path>
+
+                {/* Tropics of Cancer & Capricorn (±23.44° - Astronomical Limits of Solar Zenith) */}
+                <path
+                  d={graticulePaths.tropics}
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth="1.15"
+                  strokeOpacity="0.80"
+                  strokeDasharray="4 3"
+                >
+                  <title>Tropics (Cancer +23.44° / Capricorn -23.44° - Solar Zenith Limits)</title>
+                </path>
+
+                {/* Prime Meridian (0° Longitude) */}
+                <path
+                  d={graticulePaths.primeMeridian}
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth="1.3"
+                  strokeOpacity="0.75"
+                  strokeDasharray="4 2"
+                >
+                  <title>Prime Meridian (0° Longitude)</title>
+                </path>
+
+                {/* Equator (0° Latitude) */}
+                <path
+                  d={graticulePaths.equator}
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth="1.5"
+                  strokeOpacity="0.85"
+                >
+                  <title>Equator (0° Latitude)</title>
+                </path>
+
+                {/* Central Meridian Indicator Line (in planar projections) */}
+                {projectionType !== 'orthographic' && (
+                  <line
+                    x1={width / 2}
+                    y1={0}
+                    x2={width / 2}
+                    y2={height}
+                    stroke="#38bdf8"
+                    strokeWidth="1.1"
+                    strokeDasharray="3 3"
+                    strokeOpacity="0.35"
+                  />
+                )}
+              </g>
             )}
 
-            {/* 4. Planar Projections Real-Time Astronomical Shadow Overlays (Equal Earth & Mercator) */}
+            {/* 3. Planar Projections Real-Time Astronomical Shadow Overlays (Equal Earth & Mercator) */}
             {projectionType !== 'orthographic' && (
               <>
                 {/* Stage 1: Immediate Civil Twilight Entry (90.0° - immediate 28% dimming at crisp terminator edge) */}
@@ -1356,6 +1510,53 @@ export const WorldSolarMap: React.FC<WorldSolarMapProps> = ({
                 />
               </>
             )}
+          </g>
+        </svg>
+
+        {/* Dedicated 3D Spherical Globe Lighting & Shadow Canvas (for Orthographic projection mode) */}
+        {projectionType === 'orthographic' && (
+          <canvas
+            ref={globeShadowCanvasRef}
+            width={width}
+            height={height}
+            className="absolute inset-0 w-full h-full object-contain block pointer-events-none"
+          />
+        )}
+
+        {/* Interactive Top SVG Overlay (Terminator Boundary, Celestial Bodies, Observer Pins, Tooltips) */}
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="xMidYMid meet"
+          className="absolute inset-0 w-full h-full pointer-events-none"
+        >
+          <defs>
+            {/* World Outline Clip Path */}
+            <clipPath id="world-map-clip">
+              <path d={sphereOutline} />
+            </clipPath>
+
+            {/* Glowing filter for Sun Zenith symbol */}
+            <filter id="sun-zenith-glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+
+            {/* Glowing filter for terminator boundary */}
+            <filter id="terminator-atmospheric-mist" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blurMist" />
+              <feMerge>
+                <feMergeNode in="blurMist" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          {/* Map Group clipped strictly to Sphere Boundary */}
+          <g clipPath="url(#world-map-clip)">
 
             {/* Solar Terminator Horizon Line: Crisp astronomical boundary with warm atmospheric edge */}
             <path
