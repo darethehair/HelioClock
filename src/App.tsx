@@ -17,6 +17,7 @@ import {
   calculateRealTimeSunPosition,
   calculateSolarDay,
   calculateDaylightDeltaSeconds,
+  getEffectiveLocationOffsetHours,
 } from './utils/solarCalculator';
 
 export default function App() {
@@ -169,15 +170,21 @@ export default function App() {
     return Math.min(366, Math.max(1, Math.floor(diffMs / (24 * 3600 * 1000)) + 1));
   }, [currentDate]);
 
+  // Dynamically compute effective UTC offset for active coordinates and current simulated date
+  // Powered by IANA tzdata 2026e+, ensuring America/Winnipeg and Morden MB correctly use UTC-5 post-Nov 2026
+  const activeUtcOffsetHours = useMemo(() => {
+    return getEffectiveLocationOffsetHours(currentLatitude, currentLongitude, currentDate);
+  }, [currentLatitude, currentLongitude, currentDate]);
+
   // Compute 365-day full year ephemeris curves (dynamically scaled using system offset & active coordinates)
   const yearEphemeris = useMemo(() => {
     return calculateYearEphemeris(
       currentLatitude,
       currentLongitude,
-      geo.utcOffsetHours,
+      activeUtcOffsetHours,
       currentDate.getFullYear()
     );
-  }, [currentLatitude, currentLongitude, geo.utcOffsetHours, currentDate]);
+  }, [currentLatitude, currentLongitude, activeUtcOffsetHours, currentDate]);
 
   // Compute current day's specific solar data
   const todayData = useMemo(() => {
@@ -185,10 +192,10 @@ export default function App() {
       currentDayOfYear,
       currentLatitude,
       currentLongitude,
-      geo.utcOffsetHours,
+      activeUtcOffsetHours,
       currentDate.getFullYear()
     );
-  }, [currentDayOfYear, currentLatitude, currentLongitude, geo.utcOffsetHours, currentDate]);
+  }, [currentDayOfYear, currentLatitude, currentLongitude, activeUtcOffsetHours, currentDate]);
 
   // Compute current day's daylight delta (day-over-day rate of change in daylight length)
   const daylightDeltaSeconds = useMemo(() => {
@@ -196,10 +203,10 @@ export default function App() {
       currentDayOfYear,
       currentLatitude,
       currentLongitude,
-      geo.utcOffsetHours,
+      activeUtcOffsetHours,
       currentDate.getFullYear()
     );
-  }, [currentDayOfYear, currentLatitude, currentLongitude, geo.utcOffsetHours, currentDate]);
+  }, [currentDayOfYear, currentLatitude, currentLongitude, activeUtcOffsetHours, currentDate]);
 
   // Compute instantaneous real-time sun position (elevation, azimuth, current hour)
   const currentPos = useMemo(() => {
@@ -207,9 +214,9 @@ export default function App() {
       currentDate,
       currentLatitude,
       currentLongitude,
-      geo.utcOffsetHours
+      activeUtcOffsetHours
     );
-  }, [currentDate, currentLatitude, currentLongitude, geo.utcOffsetHours]);
+  }, [currentDate, currentLatitude, currentLongitude, activeUtcOffsetHours]);
 
   return (
     <div className="min-h-screen bg-black text-slate-100 flex flex-col font-sans selection:bg-amber-500/30 selection:text-amber-200">
@@ -319,7 +326,7 @@ export default function App() {
         accuracy={geo.accuracy}
         loading={geo.loading}
         error={geo.error}
-        utcOffsetHours={geo.utcOffsetHours}
+        utcOffsetHours={activeUtcOffsetHours}
         isLiveGps={geo.isLiveGps && !isCustomCoordinates}
         isCustomCoordinates={isCustomCoordinates}
         isLiveTrack={isLiveTrack}
@@ -344,7 +351,7 @@ export default function App() {
             currentDate={currentDate}
             latitude={currentLatitude}
             longitude={currentLongitude}
-            utcOffsetHours={geo.utcOffsetHours}
+            utcOffsetHours={activeUtcOffsetHours}
             isLiveTrack={isLiveTrack}
             isCustomCoordinates={isCustomCoordinates}
           />
@@ -382,7 +389,7 @@ export default function App() {
               maxDaylight={yearEphemeris.maxDaylight}
               currentPos={currentPos}
               currentDayOfYear={currentDayOfYear}
-              utcOffsetHours={geo.utcOffsetHours}
+              utcOffsetHours={activeUtcOffsetHours}
               latitude={currentLatitude}
               longitude={currentLongitude}
               isCustomCoordinates={isCustomCoordinates}

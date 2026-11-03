@@ -19,16 +19,20 @@ export const SystemContextStatusBar: React.FC<SystemContextStatusBarProps> = ({
   isLiveTrack,
   isCustomCoordinates = false,
 }) => {
-  // 1. Simulation Date: Displaying active day, month, and year (e.g., "October 27, 2026")
-  const formattedDate = currentDate.toLocaleDateString('en-US', {
+  // 1. Simulation Date & Wall-Clock Time: Evaluated with active UTC offset (immune to host OS tzdata age)
+  const localEpoch = currentDate.getTime() + utcOffsetHours * 3600 * 1000;
+  const localDate = new Date(localEpoch);
+
+  const formattedDate = localDate.toLocaleDateString('en-US', {
+    timeZone: 'UTC',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
   });
 
   // 2. Simulation Time: Displaying active wall-clock hour and minute in 24-hour format (e.g., "07:30" or "16:51")
-  const hours = currentDate.getHours().toString().padStart(2, '0');
-  const minutes = currentDate.getMinutes().toString().padStart(2, '0');
+  const hours = localDate.getUTCHours().toString().padStart(2, '0');
+  const minutes = localDate.getUTCMinutes().toString().padStart(2, '0');
   const formattedTime = `${hours}:${minutes}`;
 
   // 3. Active Location: Displaying exact center coordinates (e.g., "Location: 49.19° N, 98.10° W")

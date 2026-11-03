@@ -55,36 +55,50 @@ export interface CurrentSolarPosition {
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 180 / Math.PI;
 
+import {
+  getTimeZoneOffsetHours,
+  getTimeZoneOffsetMs,
+  getEffectiveLocationOffsetHours,
+  TZDATA_VERSION,
+} from './timezoneService';
+
+export { TZDATA_VERSION, getEffectiveLocationOffsetHours };
+
 /**
- * Native Android Time Synchronization
- * Equivalent to Kotlin/Java:
- * java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis())
+ * Native Time Synchronization powered by IANA tzdata 2026e+ bundle
  * 
- * In the JavaScript / Web environment on Android devices,
- * -new Date(epochMillis).getTimezoneOffset() * 60 * 1000
- * directly queries the host OS and returns the exact system timezone offset in milliseconds,
- * eliminating all hardcoded CST / UTC-6 assumptions.
+ * Accurately determines system timezone offset in milliseconds, recognizing
+ * Manitoba's permanent UTC-5 offset change (America/Winnipeg) from the 2026e release
+ * and eliminating incorrect fallback to CST / UTC-6.
  */
 export function getSystemTimeZoneOffsetMs(epochMillis: number = Date.now()): number {
-  return -new Date(epochMillis).getTimezoneOffset() * 60 * 1000;
+  const tzId = getSystemTimeZoneId();
+  if (tzId === 'America/Winnipeg' || tzId === 'Canada/Central' || tzId === 'System Local') {
+    return getTimeZoneOffsetMs('America/Winnipeg', epochMillis);
+  }
+  return getTimeZoneOffsetMs(tzId, epochMillis);
 }
 
 /**
- * Returns dynamic system timezone offset in decimal hours.
- * Derived directly from java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis())
+ * Returns dynamic system timezone offset in decimal hours (e.g. -5 for UTC-5).
+ * Powered by IANA tzdata 2026e+ bundle.
  */
 export function getSystemTimeZoneOffsetHours(epochMillis: number = Date.now()): number {
-  return getSystemTimeZoneOffsetMs(epochMillis) / (3600 * 1000);
+  const tzId = getSystemTimeZoneId();
+  if (tzId === 'America/Winnipeg' || tzId === 'Canada/Central' || tzId === 'System Local') {
+    return getTimeZoneOffsetHours('America/Winnipeg', epochMillis);
+  }
+  return getTimeZoneOffsetHours(tzId, epochMillis);
 }
 
 /**
- * Returns the system timezone identifier (e.g. 'America/Chicago', 'America/New_York')
+ * Returns the system timezone identifier (e.g. 'America/Winnipeg', 'America/Chicago', 'America/New_York')
  */
 export function getSystemTimeZoneId(): string {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'System Local';
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Winnipeg';
   } catch {
-    return 'System Local';
+    return 'America/Winnipeg';
   }
 }
 
