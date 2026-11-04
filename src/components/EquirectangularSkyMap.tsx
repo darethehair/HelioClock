@@ -3216,16 +3216,16 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
               ) : null}
             </div>
           ) : isHintVisible ? (
-            <div className="skymap-hud-text bg-black/90 backdrop-blur-md px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-800 text-[11px] font-mono text-slate-300 flex items-center gap-2 shadow-xl animate-in fade-in duration-200 max-w-[85vw] sm:max-w-md">
+            <div className="skymap-hud-text bg-slate-950/65 hover:bg-slate-950/85 backdrop-blur-xs px-2.5 py-1 rounded-full border border-slate-800/60 text-[10px] font-mono text-slate-400 flex items-center gap-1.5 shadow-sm transition-all animate-in fade-in duration-200">
               {projectionMode === 'orrery' ? (
-                <div className="flex items-center gap-2 text-slate-400 text-[10.5px]">
-                  <Orbit className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                  <span className="truncate">Hover or tap planets to probe heliocentric orbital distance (AU) & longitude</span>
+                <div className="flex items-center gap-1.5 text-slate-400 text-[10px]">
+                  <Orbit className="w-3 h-3 text-cyan-400/80 shrink-0" />
+                  <span>Tap/hover planets to probe AU</span>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 text-slate-400 text-[10.5px]">
-                  <Info className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                  <span className="truncate">Hover or tap anywhere to inspect Azimuth & Altitude coordinates</span>
+                <div className="flex items-center gap-1.5 text-slate-400 text-[10px]">
+                  <Info className="w-3 h-3 text-sky-400/80 shrink-0" />
+                  <span>Tap/hover to inspect coordinates</span>
                 </div>
               )}
               <button
@@ -3235,23 +3235,22 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                   setIsHintVisible(false);
                   setHasInteracted(true);
                 }}
-                className="text-slate-500 hover:text-white p-0.5 rounded hover:bg-slate-800 transition cursor-pointer shrink-0 ml-1"
+                className="text-slate-500 hover:text-slate-200 p-0.5 -mr-0.5 rounded-full hover:bg-slate-800/60 transition cursor-pointer shrink-0 ml-0.5"
                 title="Dismiss hint"
                 aria-label="Dismiss informational tip"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-2.5 h-2.5" />
               </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => setIsHintVisible(true)}
-              className="bg-black/75 hover:bg-slate-900 border border-slate-800/80 hover:border-slate-700 text-slate-400 hover:text-sky-300 p-1.5 rounded-lg text-xs flex items-center gap-1.5 transition shadow-md cursor-pointer select-none group"
+              className="bg-slate-950/60 hover:bg-slate-900/80 border border-slate-800/50 hover:border-slate-700/70 text-slate-500 hover:text-sky-300 w-5 h-5 rounded-full flex items-center justify-center transition shadow-xs cursor-pointer select-none group"
               title={projectionMode === 'orrery' ? 'Show planetary probe help' : 'Show coordinate probe help'}
               aria-label={projectionMode === 'orrery' ? 'Show planetary probe help' : 'Show coordinate probe help'}
             >
-              <HelpCircle className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
-              <span className="text-[10.5px] font-mono text-slate-400 hidden xs:inline pr-0.5">Probe Tip</span>
+              <HelpCircle className="w-3 h-3 text-slate-400 group-hover:text-sky-300" />
             </button>
           )}
         </div>
