@@ -1,5 +1,5 @@
 import React, { useRef, useState, useMemo, useCallback, useEffect } from 'react';
-import { Compass, Maximize2, Minimize2, Sparkles, Sun, Moon, Info, Eye, RotateCcw, Orbit } from 'lucide-react';
+import { Compass, Maximize2, Minimize2, Sparkles, Sun, Moon, Info, Eye, RotateCcw, Orbit, HelpCircle, X } from 'lucide-react';
 import { useElementFullscreen } from '../hooks/useElementFullscreen';
 import { useClickRing } from '../hooks/useClickRing';
 import { CurrentSolarPosition } from '../utils/solarCalculator';
@@ -454,6 +454,19 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   } | null>(null);
   const [selectedPoint, setSelectedPoint] = useState<CelestialPoint | null>(null);
 
+  // Informational probe hint auto-hide & dismiss state
+  const [isHintVisible, setIsHintVisible] = useState<boolean>(true);
+  const [hasInteracted, setHasInteracted] = useState<boolean>(false);
+
+  // Auto-hide the informational probe hint after 4.5s of inactivity
+  useEffect(() => {
+    if (hasInteracted) return;
+    const timer = setTimeout(() => {
+      setIsHintVisible(false);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [hasInteracted]);
+
   // Orrery Sub-Toggle: Inner Planets vs Outer Planets (Pluto excluded)
   const [orreryGroup, setOrreryGroup] = useState<'inner' | 'outer'>('inner');
 
@@ -850,6 +863,8 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
 
   // Pointer interactions for probe readout and interactive click-ring feedback loop
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    setIsHintVisible(false);
+    setHasInteracted(true);
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const scaleX = activeViewBox.width / rect.width;
@@ -3125,81 +3140,119 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
       )}
     </svg>
 
-        {/* Live Interactive Probe HUD Badge pinned at top-right inside map */}
-        <div className="skymap-hud-text absolute top-2.5 right-3 bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800 text-[11px] font-mono text-slate-300 flex items-center gap-3 shadow-xl">
-          {projectionMode === 'orrery' ? (
-            hoveredOrreryPlanet ? (
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                <span className="text-amber-300 font-bold">{hoveredOrreryPlanet.name}:</span>
-                <span className="text-white font-bold">
-                  {hoveredOrreryPlanet.distanceAU.toFixed(3)} AU ({hoveredOrreryPlanet.distanceMillionKm.toFixed(1)}M km)
-                </span>
-                <span className="text-slate-400">· λ {hoveredOrreryPlanet.heliocentricLongitudeDeg.toFixed(1)}°</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase bg-amber-950/80 text-amber-300 border border-amber-700/50">
-                  v ≈ {hoveredOrreryPlanet.avgVelocityKmS} km/s
-                </span>
-              </div>
-            ) : hoveredOrreryCoords ? (
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-                <span className="text-slate-400">Orbit Probe:</span>
-                <span className="text-white font-bold">r {hoveredOrreryCoords.rAU.toFixed(2)} AU</span>
-                <span className="text-slate-400">· λ {hoveredOrreryCoords.lambdaDeg.toFixed(1)}°</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">
-                  Heliocentric
-                </span>
-              </div>
-            ) : selectedOrreryPlanet ? (
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-                <span className="text-sky-300 font-bold">{selectedOrreryPlanet.name}:</span>
-                <span className="text-slate-200">
-                  {selectedOrreryPlanet.distanceAU.toFixed(3)} AU · Period {selectedOrreryPlanet.orbitalPeriodText}
-                </span>
-                <button
-                  onClick={() => setSelectedOrreryPlanet(null)}
-                  className="text-slate-500 hover:text-white ml-1 text-xs"
-                  title="Clear selection"
-                >
-                  ✕
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-slate-400 text-[10.5px]">
-                <Orbit className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Hover or tap planets to probe heliocentric orbital distance (AU) & longitude</span>
-              </div>
-            )
-          ) : hoveredCoords ? (
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span className="text-slate-400">Probe:</span>
-              <span className="text-white font-bold">
-                Az {hoveredCoords.azimuth.toFixed(1)}° · Alt {hoveredCoords.altitude >= 0 ? '+' : ''}{hoveredCoords.altitude.toFixed(1)}°
-              </span>
-              <span className={`text-[10px] px-1 py-0.2 rounded font-bold uppercase ${hoveredCoords.altitude >= 0 ? 'bg-sky-950 text-sky-300' : 'bg-slate-900 text-slate-400'}`}>
-                {hoveredCoords.altitude >= 0 ? 'Sky' : 'Nadir'}
-              </span>
+        {/* Live Interactive Probe HUD Badge / Dismissible Help Toast pinned at top-right inside map */}
+        <div className="absolute top-2.5 right-3 z-20">
+          {(projectionMode === 'orrery'
+            ? Boolean(hoveredOrreryPlanet || hoveredOrreryCoords || selectedOrreryPlanet)
+            : Boolean(hoveredCoords || selectedPoint)) ? (
+            <div className="skymap-hud-text bg-black/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-800 text-[11px] font-mono text-slate-300 flex items-center gap-3 shadow-xl">
+              {projectionMode === 'orrery' ? (
+                hoveredOrreryPlanet ? (
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                    <span className="text-amber-300 font-bold">{hoveredOrreryPlanet.name}:</span>
+                    <span className="text-white font-bold">
+                      {hoveredOrreryPlanet.distanceAU.toFixed(3)} AU ({hoveredOrreryPlanet.distanceMillionKm.toFixed(1)}M km)
+                    </span>
+                    <span className="text-slate-400">· λ {hoveredOrreryPlanet.heliocentricLongitudeDeg.toFixed(1)}°</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase bg-amber-950/80 text-amber-300 border border-amber-700/50">
+                      v ≈ {hoveredOrreryPlanet.avgVelocityKmS} km/s
+                    </span>
+                  </div>
+                ) : hoveredOrreryCoords ? (
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                    <span className="text-slate-400">Orbit Probe:</span>
+                    <span className="text-white font-bold">r {hoveredOrreryCoords.rAU.toFixed(2)} AU</span>
+                    <span className="text-slate-400">· λ {hoveredOrreryCoords.lambdaDeg.toFixed(1)}°</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase bg-cyan-950/80 text-cyan-300 border border-cyan-700/50">
+                      Heliocentric
+                    </span>
+                  </div>
+                ) : selectedOrreryPlanet ? (
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                    <span className="text-sky-300 font-bold">{selectedOrreryPlanet.name}:</span>
+                    <span className="text-slate-200">
+                      {selectedOrreryPlanet.distanceAU.toFixed(3)} AU · Period {selectedOrreryPlanet.orbitalPeriodText}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedOrreryPlanet(null)}
+                      className="text-slate-500 hover:text-white ml-1 text-xs p-0.5 rounded hover:bg-slate-800 transition cursor-pointer"
+                      title="Clear selection"
+                      aria-label="Clear planet selection"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : null
+              ) : hoveredCoords ? (
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                  <span className="text-slate-400">Probe:</span>
+                  <span className="text-white font-bold">
+                    Az {hoveredCoords.azimuth.toFixed(1)}° · Alt {hoveredCoords.altitude >= 0 ? '+' : ''}{hoveredCoords.altitude.toFixed(1)}°
+                  </span>
+                  <span className={`text-[10px] px-1 py-0.2 rounded font-bold uppercase ${hoveredCoords.altitude >= 0 ? 'bg-sky-950 text-sky-300' : 'bg-slate-900 text-slate-400'}`}>
+                    {hoveredCoords.altitude >= 0 ? 'Sky' : 'Nadir'}
+                  </span>
+                </div>
+              ) : selectedPoint ? (
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                  <span className="text-sky-300 font-bold">{selectedPoint.name}:</span>
+                  <span className="text-slate-200">{selectedPoint.extraInfo}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPoint(null)}
+                    className="text-slate-500 hover:text-white ml-1 text-xs p-0.5 rounded hover:bg-slate-800 transition cursor-pointer"
+                    title="Clear selection"
+                    aria-label="Clear point selection"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : null}
             </div>
-          ) : selectedPoint ? (
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-              <span className="text-sky-300 font-bold">{selectedPoint.name}:</span>
-              <span className="text-slate-200">{selectedPoint.extraInfo}</span>
+          ) : isHintVisible ? (
+            <div className="skymap-hud-text bg-black/90 backdrop-blur-md px-2.5 sm:px-3 py-1.5 rounded-lg border border-slate-800 text-[11px] font-mono text-slate-300 flex items-center gap-2 shadow-xl animate-in fade-in duration-200 max-w-[85vw] sm:max-w-md">
+              {projectionMode === 'orrery' ? (
+                <div className="flex items-center gap-2 text-slate-400 text-[10.5px]">
+                  <Orbit className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  <span className="truncate">Hover or tap planets to probe heliocentric orbital distance (AU) & longitude</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-slate-400 text-[10.5px]">
+                  <Info className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span className="truncate">Hover or tap anywhere to inspect Azimuth & Altitude coordinates</span>
+                </div>
+              )}
               <button
-                onClick={() => setSelectedPoint(null)}
-                className="text-slate-500 hover:text-white ml-1 text-xs"
-                title="Clear selection"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsHintVisible(false);
+                  setHasInteracted(true);
+                }}
+                className="text-slate-500 hover:text-white p-0.5 rounded hover:bg-slate-800 transition cursor-pointer shrink-0 ml-1"
+                title="Dismiss hint"
+                aria-label="Dismiss informational tip"
               >
-                ✕
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-slate-400 text-[10.5px]">
-              <Info className="w-3.5 h-3.5 text-sky-400" />
-              <span>Hover or tap anywhere to inspect Azimuth & Altitude coordinates</span>
-            </div>
+            <button
+              type="button"
+              onClick={() => setIsHintVisible(true)}
+              className="bg-black/75 hover:bg-slate-900 border border-slate-800/80 hover:border-slate-700 text-slate-400 hover:text-sky-300 p-1.5 rounded-lg text-xs flex items-center gap-1.5 transition shadow-md cursor-pointer select-none group"
+              title={projectionMode === 'orrery' ? 'Show planetary probe help' : 'Show coordinate probe help'}
+              aria-label={projectionMode === 'orrery' ? 'Show planetary probe help' : 'Show coordinate probe help'}
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+              <span className="text-[10.5px] font-mono text-slate-400 hidden xs:inline pr-0.5">Probe Tip</span>
+            </button>
           )}
         </div>
       </div>
