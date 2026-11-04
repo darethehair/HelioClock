@@ -352,6 +352,9 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   // View Display Mode: Equirectangular vs Circular Polar vs Top-down Heliocentric Orrery
   const [projectionMode, setProjectionMode] = useState<'equirectangular' | 'polar' | 'orrery'>('equirectangular');
 
+  // Dynamic container aspect ratio tracking from ResizeObserver
+  const [containerAspect, setContainerAspect] = useState<number>(1000 / 540);
+
   // Dynamic canvas bounds state: dynamically recalculates [x, y] width & height bounds
   // so background grid lines scale, stretch, and display cleanly across the full horizontal layout area in landscape mode
   const [canvasBounds, setCanvasBounds] = useState<{ width: number; height: number }>({
@@ -370,23 +373,25 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
     setIsMobileLandscape(isLand && winW < 1024);
 
     // Dynamic horizontal aspect ratio calculation for landscape orientation
-    let containerAspect = 1000 / 540;
+    let currentAspect = 1000 / 540;
     if (viewportRef.current) {
       const rect = viewportRef.current.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        containerAspect = rect.width / rect.height;
+      if (rect.width > 20 && rect.height > 20) {
+        currentAspect = rect.width / rect.height;
       }
     } else if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        containerAspect = (rect.width - 40) / Math.max(300, rect.height - 100);
+      if (rect.width > 40 && rect.height > 100) {
+        currentAspect = (rect.width - 40) / Math.max(300, rect.height - 100);
       }
     } else if (isLand) {
-      containerAspect = Math.max(1.85, winW / Math.max(1, winH));
+      currentAspect = Math.max(1.85, winW / Math.max(1, winH));
     }
 
+    setContainerAspect(currentAspect);
+
     if (isLand && projectionMode === 'equirectangular') {
-      const newWidth = Math.round(540 * Math.max(1.85, Math.min(2.5, containerAspect)));
+      const newWidth = Math.round(540 * Math.max(1.85, Math.min(2.5, currentAspect)));
       setCanvasBounds((prev) => (prev.width === newWidth && prev.height === 540 ? prev : { width: newWidth, height: 540 }));
     } else {
       setCanvasBounds((prev) => (prev.width === 1000 && prev.height === 540 ? prev : { width: 1000, height: 540 }));
@@ -416,7 +421,13 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
 
     let ro: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined' && viewportRef.current) {
-      ro = new ResizeObserver(() => {
+      ro = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const cr = entry.contentRect;
+          if (cr.width > 20 && cr.height > 20) {
+            setContainerAspect(cr.width / cr.height);
+          }
+        }
         handleResize();
       });
       ro.observe(viewportRef.current);
@@ -488,15 +499,53 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   }, [orreryGroup, orreryEphemeris, polarCenter, orreryRadius, isDesktop]);
 
   // Active SVG ViewBox computation
-  // In portrait on mobile, centers tightly on the circle. In landscape or desktop, spans full width x height.
+  // For Circular Polar & Orrery:
+  // Both projections are centered at (cx, cy) = (width / 2, height / 2) with outer boundary ~530-540.
+  // Dynamically scales the viewBox to match containerAspect (width / height) so preserveAspectRatio="xMidYMid meet"
+  // renders the circular dome at maximum scale with ZERO empty padding on tablet, phone, desktop, or fullscreen.
   const activeViewBox = useMemo(() => {
-    if (isMobile && !isLandscape && (projectionMode === 'polar' || projectionMode === 'orrery')) {
-      const cx = width / 2;
-      const cy = height / 2;
-      return { x: cx - 265, y: cy - 265, width: 530, height: 530, str: `${cx - 265} ${cy - 265} 530 530` };
+    if (projectionMode === 'polar' || projectionMode === 'orrery') {
+      const cx = width / 2; // 500
+      const cy = height / 2; // 270
+      const baseDiameter = 540;
+
+      // Bound containerAspect within realistic range
+      const aspect = Math.max(0.35, Math.min(3.5, containerAspect || 1.0));
+
+      if (aspect >= 1.0) {
+        // Landscape or square container (aspect >= 1):
+        // Height is baseDiameter (540), width expands to match containerAspect exactly
+        const boxH = baseDiameter;
+        const boxW = Math.round(baseDiameter * aspect);
+        const boxX = Math.round(cx - boxW / 2);
+        const boxY = 0;
+        return {
+          x: boxX,
+          y: boxY,
+          width: boxW,
+          height: boxH,
+          str: `${boxX} ${boxY} ${boxW} ${boxH}`,
+        };
+      } else {
+        // Portrait / tall container (e.g. tablet or phone portrait):
+        // Width is baseDiameter (540), height expands to match containerAspect exactly
+        const boxW = baseDiameter;
+        const boxH = Math.round(baseDiameter / aspect);
+        const boxX = Math.round(cx - boxW / 2);
+        const boxY = Math.round(cy - boxH / 2);
+        return {
+          x: boxX,
+          y: boxY,
+          width: boxW,
+          height: boxH,
+          str: `${boxX} ${boxY} ${boxW} ${boxH}`,
+        };
+      }
     }
+
+    // Equirectangular mode: standard 360° x 180° cylindrical viewBox
     return { x: 0, y: 0, width, height, str: `0 0 ${width} ${height}` };
-  }, [isMobile, isLandscape, projectionMode, width, height]);
+  }, [projectionMode, containerAspect, width, height]);
 
   // Project (Azimuth, Altitude) to SVG (X, Y)
   const projectCoord = useCallback(
@@ -1290,11 +1339,15 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
       {/* Dynamic resizing listener bounds: scales and stretches cleanly across landscape and portrait orientations */}
       <div
         ref={viewportRef}
-        className={`skymap-viewport relative w-full overflow-hidden bg-[#020617] rounded-xl border border-slate-900 shadow-inner select-none transition-all ${
+        className={`skymap-viewport relative w-full overflow-hidden bg-[#020617] rounded-xl border border-slate-900 shadow-inner select-none transition-all flex items-center justify-center ${
           isFullscreen
-            ? 'flex-1 min-h-[50vh] sm:min-h-[60vh] h-full'
-            : isMobile && !isLandscape && (projectionMode === 'polar' || projectionMode === 'orrery')
-            ? 'aspect-square min-h-[320px] max-h-[75vh]'
+            ? 'flex-1 w-full h-full min-h-[50vh] sm:min-h-[60vh]'
+            : projectionMode === 'polar' || projectionMode === 'orrery'
+            ? !isLandscape
+              ? 'aspect-square w-full min-h-[320px] sm:min-h-[480px] md:min-h-[580px] max-h-[82vh]'
+              : isMobileLandscape
+              ? 'w-full h-[75vh] min-h-[270px] max-h-[78vh]'
+              : 'w-full h-[58vh] sm:h-[66vh] md:h-[72vh] min-h-[420px] sm:min-h-[480px] md:min-h-[560px] max-h-[82vh]'
             : isMobileLandscape
             ? 'aspect-[1000/540] max-h-[78vh]'
             : 'aspect-[1000/540] min-h-[340px] sm:min-h-[440px]'
@@ -1303,7 +1356,8 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
         <svg
           ref={svgRef}
           viewBox={activeViewBox.str}
-          className="absolute inset-0 w-full h-full object-contain cursor-crosshair"
+          preserveAspectRatio="xMidYMid meet"
+          className="absolute inset-0 w-full h-full object-contain cursor-crosshair select-none block"
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}

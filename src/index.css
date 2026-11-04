@@ -237,6 +237,12 @@
     height: calc(100vh - 100px) !important;
     min-height: 260px !important;
   }
+
+  @media (min-width: 600px) {
+    .fullscreen-module-active .skymap-viewport {
+      min-height: 480px !important;
+    }
+  }
 }
 
 /* Mobile Edge-to-Edge Override for Sky Observatory Individual Fullscreen (< 600px) */
@@ -369,10 +375,31 @@
   padding: 1rem 1.5rem !important;
 }
 
+@media (max-width: 1024px) {
+  .skymap-fullscreen.fullscreen-module-active,
+  :fullscreen.skymap-fullscreen,
+  :-webkit-full-screen.skymap-fullscreen {
+    padding: 0.5rem 0.75rem !important;
+  }
+}
+
 .fullscreen-module-active .skymap-viewport,
 :fullscreen.skymap-fullscreen .skymap-viewport,
 :-webkit-full-screen.skymap-fullscreen .skymap-viewport {
   max-height: calc(100vh - 120px) !important;
+}
+
+/* Tablet Viewport Optimization for Polar & Orrery Displays (600px - 1280px) */
+@media (min-width: 600px) and (max-width: 1280px) {
+  .skymap-viewport {
+    width: 100% !important;
+  }
+
+  .skymap-viewport svg {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: 100% !important;
+  }
 }
 
 /* Moon Ephemeris Fullscreen Responsive Layout */
