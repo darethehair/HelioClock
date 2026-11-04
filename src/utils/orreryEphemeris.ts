@@ -465,3 +465,340 @@ export function detectPlanetaryAlignments(
 
   return alignments.sort((a, b) => a.angularDeltaDeg - b.angularDeltaDeg);
 }
+
+export interface OrreryLayoutItem {
+  id: string;
+  anchorX: number;
+  anchorY: number;
+  x: number;
+  y: number;
+  boxX: number;
+  boxY: number;
+  boxWidth: number;
+  boxHeight: number;
+  hasLeaderLine: boolean;
+  textAnchor: 'start' | 'middle' | 'end';
+  text: string;
+  subText?: string;
+  color?: string;
+}
+
+export interface OrreryRingLayoutItem {
+  id: string;
+  au: number;
+  rPx: number;
+  x: number;
+  y: number;
+  boxX: number;
+  boxY: number;
+  boxWidth: number;
+  boxHeight: number;
+  text: string;
+}
+
+export interface OrreryComputedLayout {
+  planetLabels: Map<string, OrreryLayoutItem>;
+  sunLabel: OrreryLayoutItem;
+  innerSystemLabel?: OrreryLayoutItem;
+  noonVectorLabel?: OrreryLayoutItem;
+  ringLabels: OrreryRingLayoutItem[];
+}
+
+/**
+ * Intelligent collision-avoidance layout engine for the Heliocentric Orrery view.
+ * 
+ * - Prevents label collisions around the crowded solar core (Sun, Inner System, Solar Noon Vector).
+ * - Dynamically determines an unobstructed radial angle for AU distance rings in outer mode.
+ * - Outwardly offsets Saturn's label and Saturn's rings away from the 10 AU distance ring.
+ * - Adds leader lines and high-contrast backdrop pills for displaced labels.
+ * - Declutters secondary text when in outer solar system scale.
+ */
+export function computeOrreryLayout(
+  orreryGroup: 'inner' | 'outer',
+  activePlanets: PlanetOrbitalState[],
+  polarCenter: { x: number; y: number },
+  orreryRadius: number,
+  earth: PlanetOrbitalState | undefined,
+  isDesktop: boolean = true
+): OrreryComputedLayout {
+  const isOuter = orreryGroup === 'outer';
+  const planetLabels = new Map<string, OrreryLayoutItem>();
+
+  // 1. Unobstructed radial angle for scale distance rings in outer mode
+  let ringRad = -Math.PI / 2; // Default 12 o'clock in inner mode
+  if (isOuter) {
+    // Screen angles of outer planets
+    const planetScreenAngles = activePlanets.map(
+      (p) => (Math.atan2(p.screenY - polarCenter.y, p.screenX - polarCenter.x) * 180) / Math.PI
+    );
+    // Candidate angles: e.g. 120°, 150°, 60°, 30°, -120°, -150°
+    const candidateAngles = [120, 150, 60, 90, 30, -120, -150, -45];
+    let bestAngle = candidateAngles[0];
+    let maxMinDist = -1;
+    for (const cand of candidateAngles) {
+      let minDist = 360;
+      for (const pa of planetScreenAngles) {
+        let diff = Math.abs(cand - pa);
+        if (diff > 180) diff = 360 - diff;
+        if (diff < minDist) minDist = diff;
+      }
+      if (minDist > maxMinDist) {
+        maxMinDist = minDist;
+        bestAngle = cand;
+      }
+    }
+    ringRad = (bestAngle * Math.PI) / 180;
+  }
+
+  // 2. Ring Labels
+  const auList = isOuter ? [5, 10, 15, 20, 30] : [0.5, 1.0, 1.5];
+  const maxScale = isOuter ? 33.5 : 1.78;
+  const pxPerAU = orreryRadius / maxScale;
+
+  const ringLabels: OrreryRingLayoutItem[] = auList.map((au) => {
+    const rPx = au * pxPerAU;
+    const isEarthRing = !isOuter && au === 1.0;
+    const cx = isOuter ? polarCenter.x + Math.cos(ringRad) * rPx : polarCenter.x;
+    const cy = isOuter ? polarCenter.y + Math.sin(ringRad) * rPx : polarCenter.y - rPx;
+    const w = isEarthRing ? 84 : 40;
+    const h = 13;
+    return {
+      id: `ring_${au}`,
+      au,
+      rPx,
+      x: cx,
+      y: cy + 3.5,
+      boxX: cx - w / 2,
+      boxY: cy - h / 2,
+      boxWidth: w,
+      boxHeight: h,
+      text: isEarthRing ? '1.0 AU (Earth)' : `${au.toFixed(isOuter ? 0 : 1)} AU`,
+    };
+  });
+
+  // 3. Central Sun Label
+  const sunLabel: OrreryLayoutItem = {
+    id: 'sun',
+    anchorX: polarCenter.x,
+    anchorY: polarCenter.y,
+    x: polarCenter.x,
+    y: polarCenter.y + 20,
+    boxX: polarCenter.x - 26,
+    boxY: polarCenter.y + 11,
+    boxWidth: 52,
+    boxHeight: 15,
+    hasLeaderLine: false,
+    textAnchor: 'middle',
+    text: 'SUN ☉',
+    color: '#fef08a',
+  };
+
+  // 4. Inner System Core Label (only rendered in outer mode)
+  let innerSystemLabel: OrreryLayoutItem | undefined;
+  if (isOuter) {
+    const rPx = 1.78 * pxPerAU;
+    // Anchor on the inner boundary edge (at top-left)
+    const anchorX = polarCenter.x - rPx * 0.707;
+    const anchorY = polarCenter.y - rPx * 0.707;
+    const lx = polarCenter.x - 38;
+    const ly = polarCenter.y - 24;
+    const w = 76;
+    const h = 14;
+    innerSystemLabel = {
+      id: 'innerSystem',
+      anchorX,
+      anchorY,
+      x: lx,
+      y: ly,
+      boxX: lx - w,
+      boxY: ly - 10,
+      boxWidth: w,
+      boxHeight: h,
+      hasLeaderLine: true,
+      textAnchor: 'end',
+      text: 'Inner System',
+      subText: '(< 1.85 AU)',
+      color: '#38bdf8',
+    };
+  }
+
+  // 5. Subsolar Noon Vector Label
+  let noonVectorLabel: OrreryLayoutItem | undefined;
+  if (earth) {
+    const dx = earth.screenX - polarCenter.x;
+    const dy = earth.screenY - polarCenter.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const extLen = isOuter ? 14 : 28;
+    const extX = earth.screenX + nx * extLen;
+    const extY = earth.screenY + ny * extLen;
+
+    if (isOuter) {
+      // Dynamic label decluttering in outer mode: compact badge with leader line
+      // Position perpendicular to vector away from center & Saturn
+      const perpX = -ny;
+      const perpY = nx;
+      const lx = extX + perpX * 14;
+      const ly = extY + perpY * 14;
+      const w = 62;
+      const h = 14;
+      noonVectorLabel = {
+        id: 'solarNoon',
+        anchorX: extX,
+        anchorY: extY,
+        x: lx,
+        y: ly + 3,
+        boxX: lx - w / 2,
+        boxY: ly - 7,
+        boxWidth: w,
+        boxHeight: h,
+        hasLeaderLine: true,
+        textAnchor: 'middle',
+        text: '☉ Solar Noon',
+        color: '#38bdf8',
+      };
+    } else {
+      const isRight = nx >= 0;
+      const lx = extX + (isRight ? 6 : -6);
+      const ly = extY + ny * 6 + 3;
+      const w = 150;
+      const h = 14;
+      noonVectorLabel = {
+        id: 'solarNoon',
+        anchorX: extX,
+        anchorY: extY,
+        x: lx,
+        y: ly,
+        boxX: isRight ? lx : lx - w,
+        boxY: ly - 10,
+        boxWidth: w,
+        boxHeight: h,
+        hasLeaderLine: false,
+        textAnchor: isRight ? 'start' : 'end',
+        text: '98.1° W Meridian · Solar Noon Vector',
+        color: '#38bdf8',
+      };
+    }
+  }
+
+  // 6. Planetary Labels
+  for (const planet of activePlanets) {
+    const dx = planet.screenX - polarCenter.x;
+    const dy = planet.screenY - polarCenter.y;
+    const angle = Math.atan2(dy, dx);
+
+    let offsetDist = planet.displayRadius + 12;
+    let hasLeaderLine = false;
+
+    // Special Saturn offset: rings extend to ~18px, and 10 AU ring is at 73px
+    // Push label radially outward past 10 AU ring
+    if (planet.id === 'saturn' && isOuter) {
+      offsetDist = planet.displayRadius + 18;
+      hasLeaderLine = true;
+    }
+
+    // Proximity to other planets
+    const neighbor = activePlanets.find(
+      (o) => o.id !== planet.id && Math.hypot(planet.screenX - o.screenX, planet.screenY - o.screenY) < 38
+    );
+    if (neighbor) {
+      offsetDist += 10;
+      hasLeaderLine = true;
+    }
+
+    const targetX = planet.screenX + Math.cos(angle) * offsetDist;
+    const targetY = planet.screenY + Math.sin(angle) * offsetDist;
+
+    let textAnchor: 'start' | 'middle' | 'end' = 'start';
+    if (Math.abs(Math.cos(angle)) < 0.3) {
+      textAnchor = 'middle';
+    } else if (Math.cos(angle) < 0) {
+      textAnchor = 'end';
+    }
+
+    const w = isDesktop ? 78 : 68;
+    const h = 14;
+    const boxX =
+      textAnchor === 'middle' ? targetX - w / 2 : textAnchor === 'start' ? targetX - 2 : targetX - w + 2;
+    const boxY = targetY - 10;
+
+    planetLabels.set(planet.id, {
+      id: planet.id,
+      anchorX: planet.screenX + Math.cos(angle) * planet.displayRadius,
+      anchorY: planet.screenY + Math.sin(angle) * planet.displayRadius,
+      x: targetX,
+      y: targetY + 2,
+      boxX,
+      boxY,
+      boxWidth: w,
+      boxHeight: h,
+      textAnchor,
+      hasLeaderLine,
+      text: planet.name,
+      subText: `(${planet.distanceAU.toFixed(2)} AU)`,
+      color: planet.color,
+    });
+  }
+
+  // 7. Iterative Bounding Box Relaxation Pass
+  const boxes: (OrreryLayoutItem | OrreryRingLayoutItem)[] = [sunLabel];
+  if (innerSystemLabel) boxes.push(innerSystemLabel);
+  if (noonVectorLabel) boxes.push(noonVectorLabel);
+  for (const rl of ringLabels) boxes.push(rl);
+  for (const pl of planetLabels.values()) boxes.push(pl);
+
+  for (let iter = 0; iter < 5; iter++) {
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const aCX = a.boxX + a.boxWidth / 2;
+        const aCY = a.boxY + a.boxHeight / 2;
+        const bCX = b.boxX + b.boxWidth / 2;
+        const bCY = b.boxY + b.boxHeight / 2;
+        const pad = 4;
+        const ox = (a.boxWidth + b.boxWidth) / 2 + pad - Math.abs(aCX - bCX);
+        const oy = (a.boxHeight + b.boxHeight) / 2 + pad - Math.abs(aCY - bCY);
+
+        if (ox > 0 && oy > 0) {
+          const pushX = (aCX > bCX ? 1 : -1) * (ox / 2 + 1);
+          const pushY = (aCY > bCY ? 1 : -1) * (oy / 2 + 1);
+
+          if (a.id === 'sun') {
+            b.boxX -= pushX * 2;
+            b.boxY -= pushY * 2;
+            b.x -= pushX * 2;
+            b.y -= pushY * 2;
+            if ('hasLeaderLine' in b) b.hasLeaderLine = true;
+          } else if (b.id === 'sun') {
+            a.boxX += pushX * 2;
+            a.boxY += pushY * 2;
+            a.x += pushX * 2;
+            a.y += pushY * 2;
+            if ('hasLeaderLine' in a) a.hasLeaderLine = true;
+          } else {
+            a.boxX += pushX;
+            a.boxY += pushY;
+            a.x += pushX;
+            a.y += pushY;
+            b.boxX -= pushX;
+            b.boxY -= pushY;
+            b.x -= pushX;
+            b.y -= pushY;
+            if ('hasLeaderLine' in a) a.hasLeaderLine = true;
+            if ('hasLeaderLine' in b) b.hasLeaderLine = true;
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    planetLabels,
+    sunLabel,
+    innerSystemLabel,
+    noonVectorLabel,
+    ringLabels,
+  };
+}

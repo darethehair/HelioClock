@@ -11,8 +11,11 @@ import {
 } from '../utils/celestialEphemeris';
 import {
   calculateOrreryEphemeris,
+  computeOrreryLayout,
   PlanetOrbitalState,
   OrrerySystemState,
+  OrreryComputedLayout,
+  OrreryLayoutItem,
 } from '../utils/orreryEphemeris';
 
 interface EquirectangularSkyMapProps {
@@ -317,83 +320,6 @@ export function drawPlanetTrajectories(
   ctx.restore();
 }
 
-/**
- * Automatically offsets each planet's name label away from the center Sun
- * based on its active quadrant angle (above, below, left, right) and dynamically
- * separates close neighbors to prevent collision/clumping.
- */
-interface OrreryPlanetLabelPosition {
-  x: number;
-  y: number;
-  textAnchor: 'start' | 'middle' | 'end';
-}
-
-function getOrreryPlanetLabelLayout(
-  planet: PlanetOrbitalState,
-  allPlanets: PlanetOrbitalState[],
-  sunCenter: { x: number; y: number }
-): OrreryPlanetLabelPosition {
-  const dx = planet.screenX - sunCenter.x;
-  const dy = planet.screenY - sunCenter.y;
-  const angleDeg = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
-
-  // Collision separation check: if another planet is within 38px
-  const closeNeighbor = allPlanets.find(
-    (other) => other.id !== planet.id && Math.hypot(planet.screenX - other.screenX, planet.screenY - other.screenY) < 38
-  );
-
-  const pad = 9;
-
-  if (closeNeighbor) {
-    // Separate by radial distance: inner stays closer/above, outer pushes further/below
-    if (planet.distanceAU < closeNeighbor.distanceAU) {
-      return {
-        x: planet.screenX,
-        y: planet.screenY - planet.displayRadius - 7,
-        textAnchor: 'middle',
-      };
-    } else {
-      return {
-        x: planet.screenX,
-        y: planet.screenY + planet.displayRadius + 14,
-        textAnchor: 'middle',
-      };
-    }
-  }
-
-  // Active quadrant displacement away from the Sun:
-  // Right quadrant (315° to 45°) -> place to right of marker
-  if (angleDeg >= 315 || angleDeg < 45) {
-    return {
-      x: planet.screenX + planet.displayRadius + pad,
-      y: planet.screenY + 3,
-      textAnchor: 'start',
-    };
-  }
-  // Bottom quadrant (45° to 135°) -> place below marker
-  if (angleDeg >= 45 && angleDeg < 135) {
-    return {
-      x: planet.screenX,
-      y: planet.screenY + planet.displayRadius + 14,
-      textAnchor: 'middle',
-    };
-  }
-  // Left quadrant (135° to 225°) -> place to left of marker
-  if (angleDeg >= 135 && angleDeg < 225) {
-    return {
-      x: planet.screenX - planet.displayRadius - pad,
-      y: planet.screenY + 3,
-      textAnchor: 'end',
-    };
-  }
-  // Top quadrant (225° to 315°) -> place above marker
-  return {
-    x: planet.screenX,
-    y: planet.screenY - planet.displayRadius - 7,
-    textAnchor: 'middle',
-  };
-}
-
 export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   currentDate,
   latitude,
@@ -552,6 +478,14 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   const orreryEphemeris = useMemo(() => {
     return calculateOrreryEphemeris(currentDate, polarCenter, orreryGroup, orreryRadius);
   }, [currentDate, polarCenter, orreryGroup, orreryRadius]);
+
+  // Intelligent collision-avoidance layout for Orrery view:
+  // Dynamically prevents label overlap (Sun, Inner System, Solar Noon Vector, Saturn, AU rings)
+  const orreryLayout = useMemo(() => {
+    const activeList = orreryGroup === 'inner' ? orreryEphemeris.innerPlanets : orreryEphemeris.outerPlanets;
+    const earth = orreryEphemeris.innerPlanets.find((p) => p.id === 'earth');
+    return computeOrreryLayout(orreryGroup, activeList, polarCenter, orreryRadius, earth, isDesktop);
+  }, [orreryGroup, orreryEphemeris, polarCenter, orreryRadius, isDesktop]);
 
   // Active SVG ViewBox computation
   // In portrait on mobile, centers tightly on the circle. In landscape or desktop, spans full width x height.
@@ -2213,18 +2147,16 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                     0° ♈
                   </text>
 
-                  {/* Scale Concentric Distance Rings: Inner vs Outer (crisp 1px with 38% opacity) */}
+                  {/* Scale Concentric Distance Rings: Inner vs Outer with Smart Unobstructed Labels & Backdrop Pills */}
                   {orreryGroup === 'inner' ? (
-                    [0.5, 1.0, 1.5].map((au) => {
-                      const pxPerAU = orreryRadius / 1.78;
-                      const rPx = au * pxPerAU;
-                      const isEarth = au === 1.0;
+                    orreryLayout.ringLabels.map((ring) => {
+                      const isEarth = ring.au === 1.0;
                       return (
-                        <g key={`orrery-scale-ring-${au}`}>
+                        <g key={`orrery-scale-ring-${ring.au}`}>
                           <circle
                             cx={polarCenter.x}
                             cy={polarCenter.y}
-                            r={rPx}
+                            r={ring.rPx}
                             fill="none"
                             stroke={isEarth ? '#38bdf8' : '#334155'}
                             strokeWidth="1"
@@ -2232,38 +2164,42 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                             strokeOpacity="0.38"
                             className="skymap-grid-line skymap-altitude-ring"
                           />
-                          {/* AU reference label perfectly aligned directly on top of circular orbit path */}
+                          {/* AU reference label perfectly aligned with dark backdrop pill */}
                           <rect
-                            x={polarCenter.x - (isEarth ? 42 : 24)}
-                            y={polarCenter.y - rPx - 6}
-                            width={isEarth ? 84 : 48}
-                            height={12}
+                            x={ring.boxX}
+                            y={ring.boxY}
+                            width={ring.boxWidth}
+                            height={ring.boxHeight}
                             rx={3}
                             fill="#020617"
-                            fillOpacity="0.85"
+                            fillOpacity="0.88"
+                            stroke={isEarth ? '#38bdf8' : '#334155'}
+                            strokeWidth="0.5"
+                            strokeOpacity="0.4"
                           />
                           <text
-                            x={polarCenter.x}
-                            y={polarCenter.y - rPx + 3}
+                            x={ring.x}
+                            y={ring.y}
                             textAnchor="middle"
                             fill={isEarth ? '#38bdf8' : '#94a3b8'}
                             fontSize="9"
                             fontWeight="normal"
                             className="skymap-orrery-scale-text font-mono select-none opacity-90"
                           >
-                            {au.toFixed(1)} AU{isEarth ? ' (1.0 AU Earth)' : ''}
+                            {ring.text}
                           </text>
                         </g>
                       );
                     })
                   ) : (
                     <>
-                      {/* Inner Solar System Core Marker for Outer Mode */}
+                      {/* Inner Solar System Core Marker for Outer Mode with Leader Line & Collision Avoidance */}
                       {(() => {
                         const pxPerAU = orreryRadius / 33.5;
                         const rPx = 1.78 * pxPerAU;
+                        const innerLabel = orreryLayout.innerSystemLabel;
                         return (
-                          <g>
+                          <g key="orrery-inner-system-core">
                             <circle
                               cx={polarCenter.x}
                               cy={polarCenter.y}
@@ -2275,50 +2211,94 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                               strokeDasharray="2 2"
                               strokeOpacity="0.6"
                             />
-                            <text
-                              x={polarCenter.x + 6}
-                              y={polarCenter.y - rPx - 3}
-                              fill="#38bdf8"
-                              fontSize="8"
-                              fontWeight="600"
-                              className="skymap-orrery-scale-text font-mono select-none opacity-90"
-                            >
-                              Inner System (&lt; 1.85 AU)
-                            </text>
+                            {innerLabel && (
+                              <g className="orrery-inner-system-label pointer-events-none">
+                                {innerLabel.hasLeaderLine && (
+                                  <line
+                                    x1={innerLabel.anchorX}
+                                    y1={innerLabel.anchorY}
+                                    x2={innerLabel.boxX + innerLabel.boxWidth}
+                                    y2={innerLabel.boxY + innerLabel.boxHeight / 2}
+                                    stroke="#38bdf8"
+                                    strokeWidth="0.75"
+                                    strokeDasharray="2 2"
+                                    strokeOpacity="0.5"
+                                  />
+                                )}
+                                <rect
+                                  x={innerLabel.boxX}
+                                  y={innerLabel.boxY}
+                                  width={innerLabel.boxWidth}
+                                  height={innerLabel.boxHeight}
+                                  rx={3}
+                                  fill="#020617"
+                                  fillOpacity="0.88"
+                                  stroke="#38bdf8"
+                                  strokeWidth="0.6"
+                                  strokeOpacity="0.4"
+                                />
+                                <text
+                                  x={innerLabel.x}
+                                  y={innerLabel.y}
+                                  textAnchor={innerLabel.textAnchor}
+                                  fill="#38bdf8"
+                                  fontSize="8.5"
+                                  fontWeight="600"
+                                  className="skymap-orrery-scale-text font-mono select-none"
+                                >
+                                  {innerLabel.text}{' '}
+                                  {innerLabel.subText && (
+                                    <tspan fill="#38bdf8" opacity="0.75">
+                                      {innerLabel.subText}
+                                    </tspan>
+                                  )}
+                                </text>
+                              </g>
+                            )}
                           </g>
                         );
                       })()}
 
-                      {/* Outer Rings: 5 AU, 10 AU, 15 AU, 20 AU, 30 AU */}
-                      {[5, 10, 15, 20, 30].map((au) => {
-                        const pxPerAU = orreryRadius / 33.5;
-                        const rPx = au * pxPerAU;
-                        return (
-                          <g key={`orrery-outer-ring-${au}`}>
-                            <circle
-                              cx={polarCenter.x}
-                              cy={polarCenter.y}
-                              r={rPx}
-                              fill="none"
-                              stroke="#334155"
-                              strokeWidth="1"
-                              strokeDasharray="2 3"
-                              strokeOpacity="0.38"
-                              className="skymap-grid-line skymap-altitude-ring"
-                            />
-                            <text
-                              x={polarCenter.x + 6}
-                              y={polarCenter.y - rPx + 9}
-                              fill="#64748b"
-                              fontSize="11"
-                              fontWeight="300"
-                              className="skymap-orrery-scale-text font-mono select-none opacity-85"
-                            >
-                              {au} AU
-                            </text>
-                          </g>
-                        );
-                      })}
+                      {/* Outer Rings: 5 AU, 10 AU, 15 AU, 20 AU, 30 AU (Dynamically positioned along clean unobstructed radial angle) */}
+                      {orreryLayout.ringLabels.map((ring) => (
+                        <g key={ring.id}>
+                          <circle
+                            cx={polarCenter.x}
+                            cy={polarCenter.y}
+                            r={ring.rPx}
+                            fill="none"
+                            stroke="#334155"
+                            strokeWidth="1"
+                            strokeDasharray="2 3"
+                            strokeOpacity="0.38"
+                            className="skymap-grid-line skymap-altitude-ring"
+                          />
+                          {/* Unobstructed AU label with backdrop pill to prevent collisions with ring lines */}
+                          <rect
+                            x={ring.boxX}
+                            y={ring.boxY}
+                            width={ring.boxWidth}
+                            height={ring.boxHeight}
+                            rx={3}
+                            fill="#020617"
+                            fillOpacity="0.88"
+                            stroke="#334155"
+                            strokeWidth="0.5"
+                            strokeOpacity="0.45"
+                          />
+                          <text
+                            x={ring.x}
+                            y={ring.y}
+                            textAnchor="middle"
+                            fill="#94a3b8"
+                            fontSize="9"
+                            fontWeight="400"
+                            className="skymap-orrery-scale-text font-mono select-none opacity-90"
+                          >
+                            {ring.text}
+                          </text>
+                        </g>
+                      ))}
                     </>
                   )}
                 </g>
@@ -2360,19 +2340,46 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 className="cursor-pointer"
                 onClick={() => setSelectedOrreryPlanet(null)}
               />
-              <text
-                x={polarCenter.x}
-                y={polarCenter.y + 19}
-                textAnchor="middle"
-                fill="#fef08a"
-                fontSize="11"
-                fontWeight="normal"
-                className="skymap-orrery-label font-sans tracking-wider select-none"
-              >
-                SUN ☉
-              </text>
+              {/* Sun label with backdrop pill and collision protection */}
+              <g className="pointer-events-none">
+                {orreryLayout.sunLabel.hasLeaderLine && (
+                  <line
+                    x1={orreryLayout.sunLabel.anchorX}
+                    y1={orreryLayout.sunLabel.anchorY}
+                    x2={orreryLayout.sunLabel.x}
+                    y2={orreryLayout.sunLabel.boxY}
+                    stroke="#f59e0b"
+                    strokeWidth="0.75"
+                    strokeDasharray="2 2"
+                    strokeOpacity="0.5"
+                  />
+                )}
+                <rect
+                  x={orreryLayout.sunLabel.boxX}
+                  y={orreryLayout.sunLabel.boxY}
+                  width={orreryLayout.sunLabel.boxWidth}
+                  height={orreryLayout.sunLabel.boxHeight}
+                  rx={3}
+                  fill="#020617"
+                  fillOpacity="0.88"
+                  stroke="#f59e0b"
+                  strokeWidth="0.6"
+                  strokeOpacity="0.45"
+                />
+                <text
+                  x={orreryLayout.sunLabel.x}
+                  y={orreryLayout.sunLabel.y}
+                  textAnchor={orreryLayout.sunLabel.textAnchor}
+                  fill="#fef08a"
+                  fontSize="9.5"
+                  fontWeight="600"
+                  className="skymap-orrery-label font-sans tracking-wider select-none"
+                >
+                  {orreryLayout.sunLabel.text}
+                </text>
+              </g>
 
-              {/* Heliocentric Alignment Vector Line: Sun to Earth with 98.1° W Meridian Solar Noon Pointer */}
+              {/* Heliocentric Alignment Vector Line: Sun to Earth with Solar Noon Pointer & Collision Avoidance */}
               {(() => {
                 const earth = orreryEphemeris.innerPlanets.find((p) => p.id === 'earth');
                 if (!earth) return null;
@@ -2387,6 +2394,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 const extensionLen = orreryGroup === 'inner' ? 28 : 14;
                 const extX = earth.screenX + nx * extensionLen;
                 const extY = earth.screenY + ny * extensionLen;
+                const noonLabel = orreryLayout.noonVectorLabel;
 
                 return (
                   <g className="heliocentric-earth-vector select-none pointer-events-none">
@@ -2446,18 +2454,46 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                       strokeDasharray="2 2"
                     />
 
-                    {/* Meridian pointer label */}
-                    <text
-                      x={extX + (nx >= 0 ? 6 : -6)}
-                      y={extY + ny * 6 + 3}
-                      textAnchor={nx >= 0 ? 'start' : 'end'}
-                      fill="#38bdf8"
-                      fontSize={isDesktop ? "11" : "8.5"}
-                      fontWeight={isDesktop ? "400" : "600"}
-                      className="skymap-orrery-scale-text font-mono"
-                    >
-                      98.1° W Meridian · Solar Noon Vector
-                    </text>
+                    {/* Meridian pointer label with leader line & backdrop pill (decluttered in outer mode) */}
+                    {noonLabel && (
+                      <g>
+                        {noonLabel.hasLeaderLine && (
+                          <line
+                            x1={noonLabel.anchorX}
+                            y1={noonLabel.anchorY}
+                            x2={noonLabel.boxX + noonLabel.boxWidth / 2}
+                            y2={noonLabel.boxY + noonLabel.boxHeight / 2}
+                            stroke="#38bdf8"
+                            strokeWidth="0.75"
+                            strokeDasharray="2 2"
+                            strokeOpacity="0.5"
+                          />
+                        )}
+                        <rect
+                          x={noonLabel.boxX}
+                          y={noonLabel.boxY}
+                          width={noonLabel.boxWidth}
+                          height={noonLabel.boxHeight}
+                          rx={3}
+                          fill="#020617"
+                          fillOpacity="0.88"
+                          stroke="#38bdf8"
+                          strokeWidth="0.6"
+                          strokeOpacity="0.4"
+                        />
+                        <text
+                          x={noonLabel.x}
+                          y={noonLabel.y}
+                          textAnchor={noonLabel.textAnchor}
+                          fill="#38bdf8"
+                          fontSize={orreryGroup === 'outer' ? '8.5' : isDesktop ? '11' : '8.5'}
+                          fontWeight={orreryGroup === 'outer' ? '600' : isDesktop ? '400' : '600'}
+                          className="skymap-orrery-scale-text font-mono"
+                        >
+                          {noonLabel.text}
+                        </text>
+                      </g>
+                    )}
                   </g>
                 );
               })()}
@@ -2476,7 +2512,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 />
               )}
 
-              {/* Planetary Bodies and Lightweight Silver Text Labels */}
+              {/* Planetary Bodies and Lightweight Silver Text Labels with Collision Avoidance & Leader Lines */}
               {showPlanets && (
                 <g>
                   {(() => {
@@ -2484,7 +2520,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                     return activePlanets.map((planet) => {
                       const isSelected = selectedOrreryPlanet?.id === planet.id;
                       const isHovered = hoveredOrreryPlanet?.id === planet.id;
-                      const labelLayout = getOrreryPlanetLabelLayout(planet, activePlanets, polarCenter);
+                      const labelLayout = orreryLayout.planetLabels.get(planet.id);
 
                       return (
                         <g
@@ -2562,21 +2598,45 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                             fillOpacity="0.45"
                           />
 
-                          {/* Clean Lightweight Un-Boxed Silver Text Label with Quadrant Placement & Collision Avoidance */}
-                          {showStars && (
+                          {/* Clean Lightweight Text Label with Backdrop Pill & Leader Line */}
+                          {showStars && labelLayout && (
                             <g pointerEvents="none">
+                              {labelLayout.hasLeaderLine && (
+                                <line
+                                  x1={labelLayout.anchorX}
+                                  y1={labelLayout.anchorY}
+                                  x2={labelLayout.boxX + labelLayout.boxWidth / 2}
+                                  y2={labelLayout.boxY + labelLayout.boxHeight / 2}
+                                  stroke={planet.color}
+                                  strokeWidth="0.75"
+                                  strokeDasharray="2 2"
+                                  strokeOpacity="0.5"
+                                />
+                              )}
+                              <rect
+                                x={labelLayout.boxX}
+                                y={labelLayout.boxY}
+                                width={labelLayout.boxWidth}
+                                height={labelLayout.boxHeight}
+                                rx={3}
+                                fill="#020617"
+                                fillOpacity="0.88"
+                                stroke={planet.color}
+                                strokeWidth="0.6"
+                                strokeOpacity="0.38"
+                              />
                               <text
                                 x={labelLayout.x}
                                 y={labelLayout.y}
                                 textAnchor={labelLayout.textAnchor}
                                 fill={LABEL_COLOR}
-                                fontSize={isDesktop ? "9" : "14"}
+                                fontSize={isDesktop ? "9" : "10.5"}
                                 fontWeight="normal"
                                 className="skymap-orrery-label font-sans tracking-wide select-none"
                               >
                                 {planet.name}{' '}
-                                <tspan fill="#94a3b8" fontSize={isDesktop ? "9" : "14"} fontWeight="normal">
-                                  ({planet.distanceAU.toFixed(2)} AU)
+                                <tspan fill="#94a3b8" fontSize={isDesktop ? "8.5" : "9.5"} fontWeight="normal">
+                                  {labelLayout.subText}
                                 </tspan>
                               </text>
                             </g>
