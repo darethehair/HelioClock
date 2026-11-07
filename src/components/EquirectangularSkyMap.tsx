@@ -10,6 +10,13 @@ import {
   PlanetTrajectoryData,
 } from '../utils/celestialEphemeris';
 import {
+  computeLunarParameters,
+  AccurateMoonSvg,
+  drawAccurateMoonCanvas,
+  buildLunarLitPath,
+  AccurateLunarParameters,
+} from '../utils/lunarRenderer';
+import {
   calculateOrreryEphemeris,
   computeOrreryLayout,
   PlanetOrbitalState,
@@ -17,6 +24,9 @@ import {
   OrreryComputedLayout,
   OrreryLayoutItem,
 } from '../utils/orreryEphemeris';
+
+export { drawAccurateMoonCanvas, AccurateMoonSvg, buildLunarLitPath };
+export type { AccurateLunarParameters };
 
 interface EquirectangularSkyMapProps {
   currentDate: Date;
@@ -621,6 +631,27 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   const moonPos = useMemo(() => {
     return projectCoord(ephemeris.moon.azimuth, ephemeris.moon.altitude);
   }, [ephemeris.moon, projectCoord]);
+
+  // Mathematically accurate lunar parameters (phase angle in rad, isWaxing flag, horizon-oriented tiltAngle)
+  const lunarParams = useMemo(() => {
+    return computeLunarParameters(
+      ephemeris.detailedMoon,
+      projectionMode,
+      moonPos,
+      polarCenter
+    );
+  }, [ephemeris.detailedMoon, projectionMode, moonPos, polarCenter]);
+
+  // Dynamic outer moon radius R scaling smoothly based on viewport, fullscreen, and responsive breakpoints
+  const dynamicMoonRadius = useMemo(() => {
+    if (isFullscreen) {
+      return isDesktop ? 12 : 10;
+    }
+    if (isDesktop) {
+      return 8.5;
+    }
+    return isMobileLandscape ? 7.5 : 8;
+  }, [isFullscreen, isDesktop, isMobileLandscape]);
 
   // Sun Trajectory segments for Equirectangular View split at +6° Golden Hour boundary
   const equirectangularSunSegments = useMemo(() => {
@@ -2881,40 +2912,27 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
             </g>
           )}
 
-          {/* 8. LAYER: MOON CURRENT POSITION MARKER */}
+          {/* 8. LAYER: MATHEMATICALLY ACCURATE MOON LUNAR PHASE & HORIZON-ORIENTED TERMINATOR */}
           {!(projectionMode === 'polar' && ephemeris.moon.altitude < 0) && (
             <g
               transform={`translate(${moonPos.x}, ${moonPos.y})`}
-              className="cursor-pointer transition-transform hover:scale-110"
+              className="cursor-pointer transition-transform hover:scale-110 select-none"
               onClick={() => setSelectedPoint(ephemeris.moon)}
             >
-              {/* Moon Glow Aura */}
-              <circle
-                cx="0"
-                cy="0"
-                r={14}
-                fill="#e2e8f0"
-                fillOpacity="0.2"
-                className="animate-pulse"
+              <AccurateMoonSvg
+                radius={dynamicMoonRadius}
+                phase={lunarParams.phase}
+                isWaxing={lunarParams.isWaxing}
+                tiltAngle={lunarParams.tiltAngle}
+                darkFill="#111827"
+                litFill="#FFF5EA"
+                glow={true}
               />
-              {/* Moon Core */}
-              <circle
-                cx="0"
-                cy="0"
-                r={7}
-                fill="#f8fafc"
-                stroke="#94a3b8"
-                strokeWidth="1.2"
-              />
-              {/* Moon Icon */}
-              <text x="0" y="3.5" textAnchor="middle" fontSize="9" fill="#0f172a">
-                🌙
-              </text>
 
               {/* Clean, Un-Boxed Moon Label */}
               <text
-                x={isMobileLandscape && isFullscreen ? 18 : 12}
-                y="3"
+                x={dynamicMoonRadius + (isMobileLandscape && isFullscreen ? 8 : 6)}
+                y="3.5"
                 fill={LABEL_COLOR}
                 fontSize={isDesktop ? '11' : isMobileLandscape && isFullscreen ? '14' : '8.5'}
                 fontFamily="sans-serif"

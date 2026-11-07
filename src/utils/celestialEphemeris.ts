@@ -47,13 +47,18 @@ export interface PlanetTrajectoryData {
 
 export interface CelestialEphemerisData {
   sun: CelestialPoint;
-  moon: CelestialPoint & { phaseName: string; illuminationFraction: number };
+  moon: CelestialPoint & {
+    phaseName: string;
+    illuminationFraction: number;
+    detailed?: DetailedMoonMetrics;
+  };
   stars: CelestialPoint[];
   planets: CelestialPoint[];
   sunTrajectory: TrajectorySegment[];
   moonTrajectory: TrajectorySegment[];
   planetTrajectories: PlanetTrajectoryData[];
   constellationLines: ConstellationLineSegment[];
+  detailedMoon: DetailedMoonMetrics;
 }
 
 /**
@@ -496,20 +501,24 @@ export function calculateCelestialEphemeris(
     extraInfo: `Alt ${sunHoriz.altitude >= 0 ? '+' : ''}${sunHoriz.altitude.toFixed(1)}° · Az ${sunHoriz.azimuth.toFixed(1)}°`,
   };
 
-  // 2. Current Moon
-  const moonEq = getMoonEquatorial(jd);
-  const moonHoriz = equatorialToHorizontal(moonEq.ra, moonEq.dec, latitude, lst);
-  const moon: CelestialPoint & { phaseName: string; illuminationFraction: number } = {
+  // 2. Current Moon with high-precision synodic metrics & topocentric angles
+  const detailedMoon = calculateDetailedMoonPhase(date, latitude, longitude);
+  const moon: CelestialPoint & {
+    phaseName: string;
+    illuminationFraction: number;
+    detailed?: DetailedMoonMetrics;
+  } = {
     id: 'moon',
     name: 'Moon',
     type: 'moon',
-    azimuth: moonHoriz.azimuth,
-    altitude: moonHoriz.altitude,
+    azimuth: detailedMoon.moonAzimuth,
+    altitude: detailedMoon.moonAltitude,
     color: '#e2e8f0',
     symbol: '🌙',
-    phaseName: moonEq.phaseName,
-    illuminationFraction: moonEq.illumination,
-    extraInfo: `${moonEq.phaseName} (${Math.round(moonEq.illumination * 100)}%) · Alt ${moonHoriz.altitude >= 0 ? '+' : ''}${moonHoriz.altitude.toFixed(1)}°`,
+    phaseName: detailedMoon.phaseName,
+    illuminationFraction: detailedMoon.illuminationFraction,
+    detailed: detailedMoon,
+    extraInfo: `${detailedMoon.phaseName} (${Math.round(detailedMoon.illuminationFraction * 100)}%) · Alt ${detailedMoon.moonAltitude >= 0 ? '+' : ''}${detailedMoon.moonAltitude.toFixed(1)}°`,
   };
 
   // 3. Stars Catalog with real apparent magnitudes and constellation metadata
@@ -648,6 +657,7 @@ export function calculateCelestialEphemeris(
     moonTrajectory,
     planetTrajectories,
     constellationLines,
+    detailedMoon,
   };
 }
 
