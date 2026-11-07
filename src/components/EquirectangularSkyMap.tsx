@@ -55,6 +55,42 @@ export function getCanvasFont(): string {
 export const LABEL_COLOR = "#d1d5db";
 
 /**
+ * Converts azimuth degrees (0-360) to primary/secondary compass cardinal direction string
+ */
+export function getAzimuthCardinal(az: number): string {
+  const norm = ((az % 360) + 360) % 360;
+  const directions = [
+    { label: 'N', deg: 0 },
+    { label: 'NNE', deg: 22.5 },
+    { label: 'NE', deg: 45 },
+    { label: 'ENE', deg: 67.5 },
+    { label: 'E', deg: 90 },
+    { label: 'ESE', deg: 112.5 },
+    { label: 'SE', deg: 135 },
+    { label: 'SSE', deg: 157.5 },
+    { label: 'S', deg: 180 },
+    { label: 'SSW', deg: 202.5 },
+    { label: 'SW', deg: 225 },
+    { label: 'WSW', deg: 247.5 },
+    { label: 'W', deg: 270 },
+    { label: 'WNW', deg: 292.5 },
+    { label: 'NW', deg: 315 },
+    { label: 'NNW', deg: 337.5 },
+  ];
+  let closest = directions[0];
+  let minDiff = 360;
+  for (const d of directions) {
+    let diff = Math.abs(norm - d.deg);
+    if (diff > 180) diff = 360 - diff;
+    if (diff < minDiff) {
+      minDiff = diff;
+      closest = d;
+    }
+  }
+  return closest.label;
+}
+
+/**
  * JavaScript Canvas Text-Drawing Functions for Sky Observatory Component
  * 1. Force the engine to explicitly call ctx.font = getCanvasFont() directly before every single fillText() canvas operation.
  * 2. Precision 9px Desktop Font.
@@ -235,9 +271,9 @@ export function drawPolarGridLines(
 
 /**
  * Canvas Trajectory Drawing Functions
- * 1. Sun Trajectory (orange dotted arc, 1px) above 0° True Horizon
- * 2. Moon Trajectory (white dotted arc, 1px) above 0° True Horizon
- * 3. Dynamic Planet Trajectories (Venus, Mars, Jupiter, Saturn) at 1px, dashed 3 3, 20% opacity
+ * 1. Sun Trajectory: Solid high-contrast arc above horizon (with +6° Golden Hour distinction), dimmed dashed arc below horizon
+ * 2. Moon Trajectory: Solid crisp arc above horizon, dimmed dashed arc below horizon
+ * 3. Dynamic Planet Trajectories: Solid above horizon, dimmed dashed below horizon
  */
 export function drawSunTrajectory(
   ctx: CanvasRenderingContext2D,
@@ -247,21 +283,30 @@ export function drawSunTrajectory(
   ctx.save();
   for (const seg of sunTrajectory) {
     if (seg.points.length < 2) continue;
+    const isAbove = seg.isAboveHorizon ?? (seg.points[0].alt >= 0);
+
     for (let i = 0; i < seg.points.length - 1; i++) {
       const p1 = seg.points[i];
       const p2 = seg.points[i + 1];
-      if (p1.alt < 0 && p2.alt < 0) continue;
-      const isGolden = (p1.alt + p2.alt) / 2 <= 6.0;
+      const avgAlt = (p1.alt + p2.alt) / 2;
+      const isGolden = isAbove && avgAlt <= 6.0;
       const pt1 = projectCoord(p1.az, p1.alt);
       const pt2 = projectCoord(p2.az, p2.alt);
 
       ctx.beginPath();
       ctx.moveTo(pt1.x, pt1.y);
       ctx.lineTo(pt2.x, pt2.y);
-      ctx.strokeStyle = isGolden ? '#facc15' : '#f59e0b';
-      ctx.lineWidth = isGolden ? 1.8 : 1;
-      ctx.setLineDash(isGolden ? [3, 3] : [4, 4]);
-      ctx.globalAlpha = isGolden ? 0.95 : 0.75;
+      if (isAbove) {
+        ctx.strokeStyle = isGolden ? '#facc15' : '#f59e0b';
+        ctx.lineWidth = isGolden ? 2.2 : 1.8;
+        ctx.setLineDash([]);
+        ctx.globalAlpha = isGolden ? 0.98 : 0.90;
+      } else {
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 4]);
+        ctx.globalAlpha = 0.32;
+      }
       ctx.stroke();
     }
   }
@@ -274,17 +319,17 @@ export function drawMoonTrajectory(
   projectCoord: (az: number, alt: number) => { x: number; y: number }
 ) {
   ctx.save();
-  ctx.strokeStyle = '#f8fafc';
-  ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.65;
-  ctx.setLineDash([4, 4]);
-
   for (const seg of moonTrajectory) {
     if (seg.points.length < 2) continue;
+    const isAbove = seg.isAboveHorizon ?? (seg.points[0].alt >= 0);
     ctx.beginPath();
+    ctx.strokeStyle = isAbove ? '#f8fafc' : '#94a3b8';
+    ctx.lineWidth = isAbove ? 1.8 : 1.2;
+    ctx.globalAlpha = isAbove ? 0.90 : 0.30;
+    ctx.setLineDash(isAbove ? [] : [4, 4]);
+
     let started = false;
     for (const pt of seg.points) {
-      if (pt.alt < 0) continue;
       const screenPt = projectCoord(pt.az, pt.alt);
       if (!started) {
         ctx.moveTo(screenPt.x, screenPt.y);
@@ -491,16 +536,54 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   const [showPlanets, setShowPlanets] = useState<boolean>(true);
   const [showGridLines, setShowGridLines] = useState<boolean>(true);
 
+  // Latitude-Aware Default Center Azimuth State & Pan Interaction:
+  // - Northern Hemisphere (latitude >= 0): default center points South (180°)
+  // - Southern Hemisphere (latitude < 0): default center points North (0°)
+  const defaultCenterAzimuth = useMemo(() => (latitude >= 0 ? 180 : 0), [latitude]);
+  const [centerAzimuth, setCenterAzimuth] = useState<number>(() => (latitude >= 0 ? 180 : 0));
+  const userHasPannedRef = useRef<boolean>(false);
+  const prevHemisphereRef = useRef<boolean>(latitude >= 0);
+
+  // Auto-align default center if observer hemisphere changes and user hasn't explicitly panned
+  useEffect(() => {
+    const isNorth = latitude >= 0;
+    if (prevHemisphereRef.current !== isNorth) {
+      prevHemisphereRef.current = isNorth;
+      if (!userHasPannedRef.current) {
+        setCenterAzimuth(isNorth ? 180 : 0);
+      }
+    }
+  }, [latitude]);
+
+  const handleResetCenter = useCallback(() => {
+    setCenterAzimuth(defaultCenterAzimuth);
+    userHasPannedRef.current = false;
+  }, [defaultCenterAzimuth]);
+
+  const isPanned = useMemo(() => {
+    const diff = Math.abs(((centerAzimuth - defaultCenterAzimuth) % 360 + 360) % 360);
+    return diff > 0.5 && Math.abs(diff - 360) > 0.5;
+  }, [centerAzimuth, defaultCenterAzimuth]);
+
+  // Touch & Mouse horizontal drag panning state refs
+  const isDraggingRef = useRef<boolean>(false);
+  const dragStartXRef = useRef<number>(0);
+  const dragStartCenterAzimuthRef = useRef<number>(180);
+  const hasMovedFarRef = useRef<boolean>(false);
+  const suppressClickRef = useRef<boolean>(false);
+  const [isCurrentlyDragging, setIsCurrentlyDragging] = useState<boolean>(false);
+
   // SVG Geometry Dimensions: dynamically recalculates exact [x, y] bounds in landscape mode
   const width = canvasBounds.width;
   const height = canvasBounds.height;
-  const paddingTop = 32;
-  const paddingBottom = 42;
+  const paddingTop = 36;
+  const paddingBottom = 36;
   const paddingLeft = 56;
   const paddingRight = 28;
 
   const plotWidth = width - paddingLeft - paddingRight;
   const plotHeight = height - paddingTop - paddingBottom;
+  // Places the horizon line (0°) precisely at the vertical midpoint of the map (height / 2)
   const horizonY = paddingTop + plotHeight / 2;
 
   // Circular Polar & Orrery Projection Dimensions: Center dynamically tracks width / 2
@@ -570,9 +653,9 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
     return { x: 0, y: 0, width, height, str: `0 0 ${width} ${height}` };
   }, [projectionMode, containerAspect, width, height]);
 
-  // Project (Azimuth, Altitude) to SVG (X, Y)
+  // Project (Azimuth, Altitude) to SVG (X, Y) with centerAzimuth offset
   const projectCoord = useCallback(
-    (az: number, alt: number): { x: number; y: number } => {
+    (az: number, alt: number, relAzOverride?: number): { x: number; y: number } => {
       if (projectionMode === 'polar') {
         const clampedAlt = Math.max(-90, Math.min(90, alt));
         const r = polarRadius * ((90 - clampedAlt) / 90);
@@ -583,15 +666,21 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
       }
 
       const clampedAlt = Math.max(-90, Math.min(90, alt));
-      const normAz = ((az % 360) + 360) % 360;
-      const x = paddingLeft + (normAz / 360) * plotWidth;
+      let relAz: number;
+      if (relAzOverride !== undefined) {
+        relAz = relAzOverride;
+      } else {
+        const leftEdgeAz = centerAzimuth - 180;
+        relAz = ((az - leftEdgeAz) % 360 + 360) % 360;
+      }
+      const x = paddingLeft + (relAz / 360) * plotWidth;
       const y = paddingTop + ((90 - clampedAlt) / 180) * plotHeight;
       return { x, y };
     },
-    [projectionMode, polarCenter, polarRadius, paddingLeft, paddingTop, plotWidth, plotHeight]
+    [projectionMode, polarCenter, polarRadius, paddingLeft, paddingTop, plotWidth, plotHeight, centerAzimuth]
   );
 
-  // Inverse projection from screen pixel to (Azimuth, Altitude)
+  // Inverse projection from screen pixel to (Azimuth, Altitude) with centerAzimuth offset
   const unprojectCoord = useCallback(
     (px: number, py: number): { azimuth: number; altitude: number } => {
       if (projectionMode === 'polar') {
@@ -607,20 +696,23 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
         };
       }
 
-      const az = ((px - paddingLeft) / plotWidth) * 360;
+      const fraction = (px - paddingLeft) / plotWidth;
+      const relAz = fraction * 360;
+      const leftEdgeAz = centerAzimuth - 180;
+      const az = ((leftEdgeAz + relAz) % 360 + 360) % 360;
       const alt = 90 - ((py - paddingTop) / plotHeight) * 180;
       return {
-        azimuth: ((az % 360) + 360) % 360,
+        azimuth: az,
         altitude: Math.max(-90, Math.min(90, alt)),
       };
     },
-    [projectionMode, polarCenter, polarRadius, paddingLeft, paddingTop, plotWidth, plotHeight]
+    [projectionMode, polarCenter, polarRadius, paddingLeft, paddingTop, plotWidth, plotHeight, centerAzimuth]
   );
 
   // Calculate live celestial positions and diurnal arcs
   const ephemeris = useMemo(() => {
-    return calculateCelestialEphemeris(currentDate, latitude, longitude, projectCoord);
-  }, [currentDate, latitude, longitude, projectCoord]);
+    return calculateCelestialEphemeris(currentDate, latitude, longitude, projectCoord, centerAzimuth);
+  }, [currentDate, latitude, longitude, projectCoord, centerAzimuth]);
 
   // Sun screen coordinates
   const sunPos = useMemo(() => {
@@ -653,20 +745,35 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
     return isMobileLandscape ? 7.5 : 8;
   }, [isFullscreen, isDesktop, isMobileLandscape]);
 
-  // Sun Trajectory segments for Equirectangular View split at +6° Golden Hour boundary
+  // Sun Trajectory segments for Equirectangular View across full 24h cycle
+  // Above horizon: solid high-contrast (with +6° Golden Hour distinction)
+  // Below horizon: dimmed dashed style
   const equirectangularSunSegments = useMemo(() => {
     if (projectionMode !== 'equirectangular') return [];
-    const segments: { path: string; isGolden: boolean }[] = [];
+    const segments: { path: string; isGolden: boolean; isAboveHorizon: boolean }[] = [];
+
     for (const seg of ephemeris.sunTrajectory) {
       if (!seg.points || seg.points.length < 2) continue;
+
+      const isAbove = seg.isAboveHorizon ?? (seg.points[0].alt >= 0);
+      if (!isAbove) {
+        // Below 0° True Horizon: render full nocturnal path segment
+        segments.push({
+          path: seg.svgPath,
+          isGolden: false,
+          isAboveHorizon: false,
+        });
+        continue;
+      }
+
+      // Above 0° True Horizon: split into Golden Hour (0°–6°) and standard daylight (> 6°)
       let currentChunk: { x: number; y: number }[] = [];
       let currentIsGolden: boolean | null = null;
 
       for (let i = 0; i < seg.points.length; i++) {
         const pt = seg.points[i];
-        if (pt.alt < 0) continue;
         const isPtGolden = pt.alt <= 6.0;
-        const screenPt = projectCoord(pt.az, pt.alt);
+        const screenPt = projectCoord(pt.az, pt.alt, (pt as any).relAz);
 
         if (currentIsGolden === null) {
           currentIsGolden = isPtGolden;
@@ -674,14 +781,26 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
         } else if (currentIsGolden === isPtGolden) {
           currentChunk.push(screenPt);
         } else {
-          currentChunk.push(screenPt);
+          // Transition across 6° altitude threshold: interpolate crossing point for seamless join
+          const prevPt = seg.points[i - 1];
+          const denominator = pt.alt - prevPt.alt;
+          const t6 = Math.abs(denominator) > 1e-6 ? (6.0 - prevPt.alt) / denominator : 0.5;
+          const az6 = prevPt.az + Math.max(0, Math.min(1, t6)) * (pt.az - prevPt.az);
+          let relAz6: number | undefined = undefined;
+          if ((prevPt as any).relAz !== undefined && (pt as any).relAz !== undefined) {
+            relAz6 = (prevPt as any).relAz + Math.max(0, Math.min(1, t6)) * ((pt as any).relAz - (prevPt as any).relAz);
+          }
+          const pt6 = projectCoord(az6, 6.0, relAz6);
+
+          currentChunk.push(pt6);
           if (currentChunk.length >= 2) {
             segments.push({
               path: 'M ' + currentChunk.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '),
               isGolden: currentIsGolden,
+              isAboveHorizon: true,
             });
           }
-          currentChunk = [screenPt];
+          currentChunk = [pt6, screenPt];
           currentIsGolden = isPtGolden;
         }
       }
@@ -690,11 +809,12 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
         segments.push({
           path: 'M ' + currentChunk.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '),
           isGolden: currentIsGolden,
+          isAboveHorizon: true,
         });
       }
     }
     return segments;
-  }, [projectionMode, ephemeris.sunTrajectory, projectCoord]);
+  }, [projectionMode, ephemeris.sunTrajectory, projectCoord, centerAzimuth]);
 
   // Trajectory paths for Circular Polar Projection with +6° Golden Hour color split
   const polarSunTrajectory = useMemo(() => {
@@ -892,10 +1012,24 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
     }
   }, [ephemeris.sun.altitude]);
 
-  // Pointer interactions for probe readout and interactive click-ring feedback loop
+  // Pointer interactions for probe readout, drag panning, and interactive click-ring feedback loop
   const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     setIsHintVisible(false);
     setHasInteracted(true);
+
+    if (projectionMode === 'equirectangular') {
+      isDraggingRef.current = true;
+      setIsCurrentlyDragging(true);
+      dragStartXRef.current = e.clientX;
+      dragStartCenterAzimuthRef.current = centerAzimuth;
+      hasMovedFarRef.current = false;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // Pointer capture not supported or already captured
+      }
+    }
+
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const scaleX = activeViewBox.width / rect.width;
@@ -906,6 +1040,21 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (projectionMode === 'equirectangular' && isDraggingRef.current) {
+      const dx = e.clientX - dragStartXRef.current;
+      if (Math.abs(dx) > 3) {
+        hasMovedFarRef.current = true;
+        userHasPannedRef.current = true;
+      }
+      if (hasMovedFarRef.current) {
+        // Direct manipulation panning: dragging right pulls sky from left to right (decreases center azimuth)
+        const degreesDelta = (dx / plotWidth) * 360;
+        const newCenter = ((dragStartCenterAzimuthRef.current - degreesDelta) % 360 + 360) % 360;
+        setCenterAzimuth(newCenter);
+        return; // Suppress coordinate hover inspection while panning
+      }
+    }
+
     if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const scaleX = activeViewBox.width / rect.width;
@@ -958,16 +1107,91 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
     }
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // ignore
+    }
+
+    const wasDragging = hasMovedFarRef.current;
+    isDraggingRef.current = false;
+    setIsCurrentlyDragging(false);
+    hasMovedFarRef.current = false;
+    endRing();
+
+    if (wasDragging) {
+      suppressClickRef.current = true;
+      setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 100);
+    }
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent<SVGSVGElement>) => {
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // ignore
+    }
+    isDraggingRef.current = false;
+    setIsCurrentlyDragging(false);
+    hasMovedFarRef.current = false;
     endRing();
   };
 
   const handlePointerLeave = () => {
-    setHoveredCoords(null);
-    setHoveredOrreryPlanet(null);
-    setHoveredOrreryCoords(null);
-    endRing();
+    if (!isDraggingRef.current) {
+      setHoveredCoords(null);
+      setHoveredOrreryPlanet(null);
+      setHoveredOrreryCoords(null);
+      endRing();
+    }
   };
+
+  // Dynamic Azimuth grid lines & labels for Equirectangular View (sliding smoothly with centerAzimuth)
+  const equirectangularAzimuthTicks = useMemo(() => {
+    if (projectionMode !== 'equirectangular') return [];
+    const baseTicks = [
+      { deg: 0, label: '0° N', cardinal: 'N' },
+      { deg: 45, label: '45° NE', cardinal: 'NE' },
+      { deg: 90, label: '90° E', cardinal: 'E' },
+      { deg: 135, label: '135° SE', cardinal: 'SE' },
+      { deg: 180, label: '180° S', cardinal: 'S' },
+      { deg: 225, label: '225° SW', cardinal: 'SW' },
+      { deg: 270, label: '270° W', cardinal: 'W' },
+      { deg: 315, label: '315° NW', cardinal: 'NW' },
+    ];
+    const leftEdgeAz = centerAzimuth - 180;
+    const result: { deg: number; label: string; cardinal: string; x: number; isCardinal: boolean; key: string }[] = [];
+
+    for (const tick of baseTicks) {
+      const isCardinal = tick.deg % 90 === 0;
+      const relAz = ((tick.deg - leftEdgeAz) % 360 + 360) % 360;
+      const x = paddingLeft + (relAz / 360) * plotWidth;
+      result.push({
+        ...tick,
+        x,
+        isCardinal,
+        key: `az-${tick.deg}`,
+      });
+
+      // If tick lands exactly at boundary (relAz == 0), duplicate it at the right edge
+      if (Math.abs(relAz) < 0.5) {
+        result.push({
+          ...tick,
+          x: paddingLeft + plotWidth,
+          isCardinal,
+          key: `az-${tick.deg}-right`,
+        });
+      }
+    }
+    return result;
+  }, [projectionMode, centerAzimuth, paddingLeft, plotWidth]);
 
   // Polar Azimuth spokes (every 30° around the circle)
   const polarAzimuthSpokes = useMemo(() => {
@@ -1086,26 +1310,37 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   }, []);
 
   // Dynamic label positioning helper for stars (displaces text based on Azimuth with 8px fixed padding and vertical offset)
+  // Dynamic label positioning helper for stars (displaces text based on Azimuth with 8px fixed padding and vertical offset)
   const getStarLabelPosition = useCallback((azimuth: number, radius: number, verticalShift = 0) => {
-    const isLeft = azimuth < 180;
+    let isLeft = azimuth < 180;
+    if (projectionMode === 'equirectangular') {
+      const leftEdgeAz = centerAzimuth - 180;
+      const relAz = ((azimuth - leftEdgeAz) % 360 + 360) % 360;
+      isLeft = relAz < 180;
+    }
     return {
       x: isLeft ? -(radius + 8) : (radius + 8),
       y: verticalShift !== 0 ? 3.5 + verticalShift : 3.5,
       textAnchor: isLeft ? ('end' as const) : ('start' as const),
       textAlign: isLeft ? ('right' as const) : ('left' as const),
     };
-  }, []);
+  }, [projectionMode, centerAzimuth]);
 
   // Dynamic label positioning helper for planets (displaces text based on Azimuth with 8px fixed padding)
   const getPlanetLabelPosition = useCallback((azimuth: number, radius: number) => {
-    const isLeft = azimuth < 180;
+    let isLeft = azimuth < 180;
+    if (projectionMode === 'equirectangular') {
+      const leftEdgeAz = centerAzimuth - 180;
+      const relAz = ((azimuth - leftEdgeAz) % 360 + 360) % 360;
+      isLeft = relAz < 180;
+    }
     return {
       x: isLeft ? -(radius + 8) : (radius + 8),
       y: 3.5,
       textAnchor: isLeft ? ('end' as const) : ('start' as const),
       textAlign: isLeft ? ('right' as const) : ('left' as const),
     };
-  }, []);
+  }, [projectionMode, centerAzimuth]);
 
   // Vertical overlap collision separation for stars in both Circular Polar and Equirectangular views
   const starCollisionMap = useMemo(() => {
@@ -1113,7 +1348,12 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
     const visible = ephemeris.stars.filter((s) => !(projectionMode === 'polar' && s.altitude < 0));
     const projected = visible.map((star) => {
       const pt = projectCoord(star.azimuth, star.altitude);
-      const isLeft = star.azimuth < 180;
+      let isLeft = star.azimuth < 180;
+      if (projectionMode === 'equirectangular') {
+        const leftEdgeAz = centerAzimuth - 180;
+        const relAz = ((star.azimuth - leftEdgeAz) % 360 + 360) % 360;
+        isLeft = relAz < 180;
+      }
       return { id: star.id, pt, isLeft };
     });
 
@@ -1136,7 +1376,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
       }
     }
     return map;
-  }, [ephemeris.stars, projectionMode, projectCoord]);
+  }, [ephemeris.stars, projectionMode, projectCoord, centerAzimuth]);
 
   return (
     <div
@@ -1332,6 +1572,26 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Equirectangular Pan Center & Snap Reset Button */}
+            {projectionMode === 'equirectangular' && (
+              <div className="flex items-center gap-1.5 bg-slate-900/90 border border-slate-800 rounded-lg px-2 sm:px-2.5 py-1 text-[11px] font-mono shadow-xs font-normal">
+                <Compass className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span className="text-slate-400">Center:</span>
+                <span className="text-cyan-300 font-semibold">{Math.round(centerAzimuth)}° ({getAzimuthCardinal(centerAzimuth)})</span>
+                {isPanned && (
+                  <button
+                    type="button"
+                    onClick={handleResetCenter}
+                    className="ml-1 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 text-[10px] font-sans flex items-center gap-1 transition cursor-pointer border border-amber-500/30 active:scale-95 shadow-xs"
+                    title={`Reset to default center: ${defaultCenterAzimuth}° (${latitude >= 0 ? 'South' : 'North'})`}
+                  >
+                    <RotateCcw className="w-2.5 h-2.5" />
+                    <span>Reset</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Dynamic Orbital Header Metrics in Orrery mode */}
             {projectionMode === 'orrery' && (
               <div className="skymap-orrery-metrics flex items-center gap-2 sm:gap-2.5 bg-slate-900/90 border border-slate-800 rounded-lg px-2 sm:px-2.5 py-1 text-[11px] font-mono shadow-xs font-normal">
@@ -1403,11 +1663,17 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
           ref={svgRef}
           viewBox={activeViewBox.str}
           preserveAspectRatio="xMidYMid meet"
-          className="absolute inset-0 w-full h-full object-contain cursor-crosshair select-none block"
+          className={`absolute inset-0 w-full h-full object-contain select-none block touch-none ${
+            projectionMode === 'equirectangular'
+              ? isCurrentlyDragging
+                ? 'cursor-grabbing'
+                : 'cursor-grab'
+              : 'cursor-crosshair'
+          }`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
           onPointerLeave={handlePointerLeave}
         >
           <defs>
@@ -1583,12 +1849,12 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
               {showGridLines && (
                 <g clipPath="url(#plot-area-clip)">
                   {/* Vertical Azimuth Grid Lines: crisp 1px with 38% opacity */}
-                  {azimuthTicks.map((tick) => {
-                    const x = paddingLeft + (tick.deg / 360) * plotWidth;
-                    const isCardinal = tick.deg % 90 === 0;
+                  {equirectangularAzimuthTicks.map((tick) => {
+                    const x = tick.x;
+                    const isCardinal = tick.isCardinal;
                     return (
                       <line
-                        key={`az-line-${tick.deg}`}
+                        key={`az-line-${tick.key}`}
                         x1={x}
                         y1={paddingTop}
                         x2={x}
@@ -1649,11 +1915,11 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 />
 
                 {/* Horizon Cardinal Direction Notches along 0° line */}
-                {azimuthTicks.map((tick) => {
-                  const x = paddingLeft + (tick.deg / 360) * plotWidth;
-                  const isMajor = tick.deg % 90 === 0;
+                {equirectangularAzimuthTicks.map((tick) => {
+                  const x = tick.x;
+                  const isMajor = tick.isCardinal;
                   return (
-                    <g key={`horizon-notch-${tick.deg}`} transform={`translate(${x}, ${horizonY})`}>
+                    <g key={`horizon-notch-${tick.key}`} transform={`translate(${x}, ${horizonY})`}>
                       <line
                         x1="0"
                         y1={isMajor ? -6 : -3}
@@ -1749,55 +2015,79 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 </g>
               </g>
 
-              {/* 5. LAYER: DOTTED PATHS (Strictly above 0° True Horizon) */}
+              {/* 5. LAYER: FULL 24-HOUR DIURNAL PATHS (Above & Below Horizon) */}
               {showPaths && (
-                <g clipPath="url(#sky-hemisphere-clip)">
-                  {/* Sun 24-Hour Diurnal Trajectory: Gold inside 0°–6° Golden Hour band, orange above */}
+                <g clipPath="url(#plot-area-clip)">
+                  {/* Sun 24-Hour Diurnal Trajectory: Solid high-contrast above horizon, dimmed dashed below */}
                   {equirectangularSunSegments.map((seg, idx) => (
                     <path
                       key={`sun-traj-${idx}`}
                       d={seg.path}
                       fill="none"
-                      stroke={seg.isGolden ? '#facc15' : '#f59e0b'}
-                      strokeWidth={seg.isGolden ? '2' : '1.2'}
-                      strokeDasharray={seg.isGolden ? '3 2' : '4 4'}
-                      strokeOpacity={seg.isGolden ? '0.95' : '0.75'}
+                      stroke={
+                        seg.isAboveHorizon
+                          ? seg.isGolden
+                            ? '#facc15'
+                            : '#f59e0b'
+                          : '#f59e0b'
+                      }
+                      strokeWidth={
+                        seg.isAboveHorizon
+                          ? seg.isGolden
+                            ? '2.2'
+                            : '1.8'
+                          : '1.2'
+                      }
+                      strokeDasharray={seg.isAboveHorizon ? undefined : '4 4'}
+                      strokeOpacity={
+                        seg.isAboveHorizon
+                          ? seg.isGolden
+                            ? '0.98'
+                            : '0.90'
+                          : '0.32'
+                      }
                       strokeLinecap="round"
-                      className="skymap-path-sun"
+                      className={`skymap-path-sun ${seg.isAboveHorizon ? 'skymap-path-sun-day' : 'skymap-path-sun-night'}`}
                     />
                   ))}
 
-                  {/* Moon 24-Hour Diurnal Trajectory: Crisp White Dotted Arc above 0° True Horizon */}
-                  {ephemeris.moonTrajectory.map((seg, idx) => (
-                    <path
-                      key={`moon-traj-${idx}`}
-                      d={seg.svgPath}
-                      fill="none"
-                      stroke="#f8fafc"
-                      strokeWidth="1"
-                      strokeDasharray="4 4"
-                      strokeOpacity="0.65"
-                      strokeLinecap="round"
-                      className="skymap-path-moon"
-                    />
-                  ))}
+                  {/* Moon 24-Hour Diurnal Trajectory: Solid crisp above horizon, dimmed dashed below */}
+                  {ephemeris.moonTrajectory.map((seg, idx) => {
+                    const isAbove = seg.isAboveHorizon ?? (seg.points[0]?.alt >= 0);
+                    return (
+                      <path
+                        key={`moon-traj-${idx}`}
+                        d={seg.svgPath}
+                        fill="none"
+                        stroke={isAbove ? '#f8fafc' : '#94a3b8'}
+                        strokeWidth={isAbove ? '1.8' : '1.2'}
+                        strokeDasharray={isAbove ? undefined : '4 4'}
+                        strokeOpacity={isAbove ? '0.90' : '0.30'}
+                        strokeLinecap="round"
+                        className={`skymap-path-moon ${isAbove ? 'skymap-path-moon-day' : 'skymap-path-moon-night'}`}
+                      />
+                    );
+                  })}
 
                   {/* Dynamic Planet Paths: Rendered when BOTH showPaths and showPlanets are enabled */}
                   {showPlanets &&
                     ephemeris.planetTrajectories?.map((ptraj) =>
-                      ptraj.segments.map((seg, sIdx) => (
-                        <path
-                          key={`planet-traj-${ptraj.id}-${sIdx}`}
-                          d={seg.svgPath}
-                          fill="none"
-                          stroke={ptraj.color}
-                          strokeWidth="1"
-                          strokeDasharray="3 3"
-                          strokeOpacity="0.20"
-                          strokeLinecap="round"
-                          className="skymap-path-planet"
-                        />
-                      ))
+                      ptraj.segments.map((seg, sIdx) => {
+                        const isAbove = seg.isAboveHorizon ?? (seg.points[0]?.alt >= 0);
+                        return (
+                          <path
+                            key={`planet-traj-${ptraj.id}-${sIdx}`}
+                            d={seg.svgPath}
+                            fill="none"
+                            stroke={ptraj.color}
+                            strokeWidth={isAbove ? '1.2' : '1.0'}
+                            strokeDasharray={isAbove ? undefined : '3 3'}
+                            strokeOpacity={isAbove ? '0.45' : '0.18'}
+                            strokeLinecap="round"
+                            className="skymap-path-planet"
+                          />
+                        );
+                      })
                     )}
                 </g>
               )}
@@ -2786,7 +3076,10 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                     key={`star-${star.id}`}
                     transform={`translate(${pt.x}, ${pt.y})`}
                     className="cursor-pointer transition-transform hover:scale-125"
-                    onClick={() => setSelectedPoint(star)}
+                    onClick={() => {
+                      if (suppressClickRef.current) return;
+                      setSelectedPoint(star);
+                    }}
                   >
                     {/* Subtle selection ring */}
                     {isSelected && (
@@ -2853,7 +3146,10 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                     key={`planet-${planet.id}`}
                     transform={`translate(${pt.x}, ${pt.y})`}
                     className="cursor-pointer transition-transform hover:scale-125"
-                    onClick={() => setSelectedPoint(planet)}
+                    onClick={() => {
+                      if (suppressClickRef.current) return;
+                      setSelectedPoint(planet);
+                    }}
                   >
                     {/* Selection Ring */}
                     {isSelected && (
@@ -2917,7 +3213,10 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
             <g
               transform={`translate(${moonPos.x}, ${moonPos.y})`}
               className="cursor-pointer transition-transform hover:scale-110 select-none"
-              onClick={() => setSelectedPoint(ephemeris.moon)}
+              onClick={() => {
+                if (suppressClickRef.current) return;
+                setSelectedPoint(ephemeris.moon);
+              }}
             >
               <AccurateMoonSvg
                 radius={dynamicMoonRadius}
@@ -2949,7 +3248,10 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
             <g
               transform={`translate(${sunPos.x}, ${sunPos.y})`}
               className="cursor-pointer transition-transform hover:scale-110"
-              onClick={() => setSelectedPoint(ephemeris.sun)}
+              onClick={() => {
+                if (suppressClickRef.current) return;
+                setSelectedPoint(ephemeris.sun);
+              }}
             >
               {/* Outer Sunlight Ping Pulse */}
               <circle
@@ -3017,11 +3319,11 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
               })}
 
               {/* Horizontal Azimuth Labels on Bottom Edge */}
-              {azimuthTicks.map((tick) => {
-                const x = paddingLeft + (tick.deg / 360) * plotWidth;
-                const isCardinal = tick.deg % 90 === 0;
+              {equirectangularAzimuthTicks.map((tick) => {
+                const x = tick.x;
+                const isCardinal = tick.isCardinal;
                 return (
-                  <g key={`az-bottom-${tick.deg}`} transform={`translate(${x}, ${paddingTop + plotHeight + (isMobileLandscape && isFullscreen ? 18 : 14)})`}>
+                  <g key={`az-bottom-${tick.key}`} transform={`translate(${x}, ${paddingTop + plotHeight + (isMobileLandscape && isFullscreen ? 18 : 14)})`}>
                     <text
                       x="0"
                       y="0"
@@ -3243,7 +3545,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
               ) : (
                 <div className="flex items-center gap-1.5 text-slate-400 text-[10px]">
                   <Info className="w-3 h-3 text-sky-400/80 shrink-0" />
-                  <span>Tap/hover to inspect coordinates</span>
+                  <span>{projectionMode === 'equirectangular' ? 'Drag to pan sky · Tap to inspect' : 'Tap/hover to inspect coordinates'}</span>
                 </div>
               )}
               <button
@@ -3335,7 +3637,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
 
             <div className="flex items-center gap-2 text-slate-400 text-[11px]">
               <Eye className="w-3 h-3 text-emerald-400" />
-              <span>Restraint: Dotted Arcs ONLY for Sun & Moon</span>
+              <span>Full 24h Diurnal Arcs: Solid Above · Dashed Below Horizon</span>
             </div>
           </>
         )}

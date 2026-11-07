@@ -27,8 +27,9 @@ export interface CelestialPoint {
 }
 
 export interface TrajectorySegment {
-  points: { az: number; alt: number }[];
+  points: { az: number; alt: number; relAz?: number }[];
   svgPath: string;
+  isAboveHorizon?: boolean;
 }
 
 export interface ConstellationLineSegment {
@@ -408,19 +409,158 @@ function buildTrajectorySvgSegments(
 }
 
 /**
+ * Builds full 24-hour diurnal trajectory SVG segments spanning above and below 0° Horizon.
+ * 
+ * Accurately:
+ * 1. Handles Azimuth 0°/360° wrapping with edge interpolation so no horizontal streak artifacts occur.
+ * 2. Splits segments precisely at 0° altitude with horizon crossing interpolation so that
+ *    segments above horizon (alt >= 0) and below horizon (alt < 0) meet seamlessly at 0° altitude.
+ * 3. Tags each segment with `isAboveHorizon: boolean`.
+ */
+export function buildFullDiurnalTrajectorySegments(
+  points: { az: number; alt: number }[],
+  projectCoord: (az: number, alt: number, relAzOverride?: number) => { x: number; y: number },
+  centerAzimuth = 180
+): TrajectorySegment[] {
+  if (points.length < 2) return [];
+
+  const leftEdgeAz = centerAzimuth - 180;
+  const getRelAz = (az: number) => ((az - leftEdgeAz) % 360 + 360) % 360;
+
+  // Step 1: Break raw points into continuous azimuth tracks by interpolating at boundary
+  const continuousTracks: { az: number; alt: number; relAz?: number }[][] = [];
+  const startRelAz = getRelAz(points[0].az);
+  let currentTrack: { az: number; alt: number; relAz?: number }[] = [{ ...points[0], relAz: startRelAz }];
+
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const prevRelAz = getRelAz(prev.az);
+    const currRelAz = getRelAz(curr.az);
+    const relAzDiff = currRelAz - prevRelAz;
+
+    if (Math.abs(relAzDiff) > 180) {
+      // Azimuth wrap-around detected across screen boundary (relAz 360° / 0°)
+      if (prevRelAz > 180 && currRelAz < 180) {
+        // Moving rightward across 360° to 0°
+        const unwrappedCurrAz = currRelAz + 360;
+        const denominator = unwrappedCurrAz - prevRelAz;
+        const t = Math.abs(denominator) > 1e-6 ? (360 - prevRelAz) / denominator : 0.5;
+        const altEdge = prev.alt + t * (curr.alt - prev.alt);
+
+        currentTrack.push({ az: (centerAzimuth + 180) % 360, alt: altEdge, relAz: 360 });
+        if (currentTrack.length >= 2) {
+          continuousTracks.push(currentTrack);
+        }
+        currentTrack = [
+          { az: ((centerAzimuth - 180) % 360 + 360) % 360, alt: altEdge, relAz: 0 },
+          { ...curr, relAz: currRelAz },
+        ];
+      } else if (prevRelAz < 180 && currRelAz > 180) {
+        // Moving leftward across 0° to 360°
+        const unwrappedPrevAz = prevRelAz + 360;
+        const denominator = unwrappedPrevAz - currRelAz;
+        const t = Math.abs(denominator) > 1e-6 ? (unwrappedPrevAz - 360) / denominator : 0.5;
+        const altEdge = prev.alt + t * (curr.alt - prev.alt);
+
+        currentTrack.push({ az: ((centerAzimuth - 180) % 360 + 360) % 360, alt: altEdge, relAz: 0 });
+        if (currentTrack.length >= 2) {
+          continuousTracks.push(currentTrack);
+        }
+        currentTrack = [
+          { az: (centerAzimuth + 180) % 360, alt: altEdge, relAz: 360 },
+          { ...curr, relAz: currRelAz },
+        ];
+      } else {
+        if (currentTrack.length >= 2) {
+          continuousTracks.push(currentTrack);
+        }
+        currentTrack = [{ ...curr, relAz: currRelAz }];
+      }
+    } else {
+      currentTrack.push({ ...curr, relAz: currRelAz });
+    }
+  }
+
+  if (currentTrack.length >= 2) {
+    continuousTracks.push(currentTrack);
+  }
+
+  // Step 2: Split each continuous azimuth track at the 0° Altitude Horizon line
+  const finalSegments: TrajectorySegment[] = [];
+
+  for (const track of continuousTracks) {
+    if (track.length < 2) continue;
+
+    let segPoints: { az: number; alt: number; relAz?: number }[] = [track[0]];
+    let isAbove = track[0].alt >= 0;
+
+    for (let i = 1; i < track.length; i++) {
+      const pPrev = track[i - 1];
+      const pCurr = track[i];
+      const prevAbove = pPrev.alt >= 0;
+      const currAbove = pCurr.alt >= 0;
+
+      if (prevAbove !== currAbove) {
+        // Horizon crossing between pPrev and pCurr!
+        const denominator = pCurr.alt - pPrev.alt;
+        const tCross = Math.abs(denominator) > 1e-6 ? (0 - pPrev.alt) / denominator : 0.5;
+        const azCross = pPrev.az + Math.max(0, Math.min(1, tCross)) * (pCurr.az - pPrev.az);
+        let relAzCross: number | undefined = undefined;
+        if (pPrev.relAz !== undefined && pCurr.relAz !== undefined) {
+          relAzCross = pPrev.relAz + Math.max(0, Math.min(1, tCross)) * (pCurr.relAz - pPrev.relAz);
+        }
+        const pCross = { az: azCross, alt: 0, relAz: relAzCross };
+
+        segPoints.push(pCross);
+        if (segPoints.length >= 2) {
+          finalSegments.push({
+            points: segPoints,
+            svgPath: formatSvgPath(segPoints, projectCoord),
+            isAboveHorizon: isAbove,
+          });
+        }
+
+        // Start new segment on other side of horizon
+        isAbove = currAbove;
+        segPoints = [pCross, pCurr];
+      } else {
+        segPoints.push(pCurr);
+      }
+    }
+
+    if (segPoints.length >= 2) {
+      finalSegments.push({
+        points: segPoints,
+        svgPath: formatSvgPath(segPoints, projectCoord),
+        isAboveHorizon: isAbove,
+      });
+    }
+  }
+
+  return finalSegments;
+}
+
+/**
  * Builds trajectory SVG segments filtered strictly to visible arcs above the 0° True Horizon line (alt >= 0)
  */
 export function buildAboveHorizonTrajectorySvgSegments(
   points: { az: number; alt: number }[],
-  projectCoord: (az: number, alt: number) => { x: number; y: number }
+  projectCoord: (az: number, alt: number, relAzOverride?: number) => { x: number; y: number },
+  centerAzimuth = 180
 ): TrajectorySegment[] {
   if (points.length < 2) return [];
 
+  const leftEdgeAz = centerAzimuth - 180;
+  const getRelAz = (az: number) => ((az - leftEdgeAz) % 360 + 360) % 360;
+
   const segments: TrajectorySegment[] = [];
-  let currentSegment: { az: number; alt: number }[] = [];
+  let currentSegment: { az: number; alt: number; relAz?: number }[] = [];
 
   for (let i = 0; i < points.length; i++) {
     const curr = points[i];
+    const currRelAz = getRelAz(curr.az);
+
     // Filter strictly to visible arc above 0° True Horizon
     if (curr.alt < 0) {
       if (currentSegment.length > 1) {
@@ -435,19 +575,20 @@ export function buildAboveHorizonTrajectorySvgSegments(
 
     if (currentSegment.length > 0) {
       const prev = currentSegment[currentSegment.length - 1];
-      // Detect azimuth wrap-around (e.g. from 359° to 1° or vice versa)
-      if (Math.abs(curr.az - prev.az) > 180) {
+      const prevRelAz = prev.relAz ?? getRelAz(prev.az);
+      // Detect azimuth wrap-around
+      if (Math.abs(currRelAz - prevRelAz) > 180) {
         if (currentSegment.length > 1) {
           segments.push({
             points: currentSegment,
             svgPath: formatSvgPath(currentSegment, projectCoord),
           });
         }
-        currentSegment = [curr];
+        currentSegment = [{ ...curr, relAz: currRelAz }];
         continue;
       }
     }
-    currentSegment.push(curr);
+    currentSegment.push({ ...curr, relAz: currRelAz });
   }
 
   if (currentSegment.length > 1) {
@@ -461,15 +602,15 @@ export function buildAboveHorizonTrajectorySvgSegments(
 }
 
 function formatSvgPath(
-  points: { az: number; alt: number }[],
-  projectCoord: (az: number, alt: number) => { x: number; y: number }
+  points: { az: number; alt: number; relAz?: number }[],
+  projectCoord: (az: number, alt: number, relAzOverride?: number) => { x: number; y: number }
 ): string {
   if (points.length === 0) return '';
-  const first = projectCoord(points[0].az, points[0].alt);
+  const first = projectCoord(points[0].az, points[0].alt, points[0].relAz);
   let d = `M ${first.x.toFixed(2)} ${first.y.toFixed(2)}`;
 
   for (let i = 1; i < points.length; i++) {
-    const pt = projectCoord(points[i].az, points[i].alt);
+    const pt = projectCoord(points[i].az, points[i].alt, points[i].relAz);
     d += ` L ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`;
   }
   return d;
@@ -482,7 +623,8 @@ export function calculateCelestialEphemeris(
   date: Date,
   latitude: number,
   longitude: number,
-  projectCoord: (az: number, alt: number) => { x: number; y: number }
+  projectCoord: (az: number, alt: number, relAzOverride?: number) => { x: number; y: number },
+  centerAzimuth = 180
 ): CelestialEphemerisData {
   const jd = getJulianDate(date);
   const lst = getLocalSiderealTime(date, longitude);
@@ -576,9 +718,9 @@ export function calculateCelestialEphemeris(
   baseDay.setHours(0, 0, 0, 0);
   const baseTime = baseDay.getTime();
 
-  // Sample every 12 minutes (120 points over 24 hours) for a butter-smooth diurnal curve
-  for (let i = 0; i <= 120; i++) {
-    const sampleDate = new Date(baseTime + (i * 12) * 60 * 1000);
+  // Sample every 6 minutes (240 points over 24 hours) for a butter-smooth diurnal curve
+  for (let i = 0; i <= 240; i++) {
+    const sampleDate = new Date(baseTime + (i * 6) * 60 * 1000);
     const sampleJd = getJulianDate(sampleDate);
     const sampleLst = getLocalSiderealTime(sampleDate, longitude);
 
@@ -609,9 +751,9 @@ export function calculateCelestialEphemeris(
     }
   }
 
-  // Generate trajectory segments strictly for visible diurnal arcs above 0° True Horizon
-  const sunTrajectory = buildAboveHorizonTrajectorySvgSegments(sunArcPoints, projectCoord);
-  const moonTrajectory = buildAboveHorizonTrajectorySvgSegments(moonArcPoints, projectCoord);
+  // Generate full 24-hour diurnal trajectory segments (both above and below horizon)
+  const sunTrajectory = buildFullDiurnalTrajectorySegments(sunArcPoints, projectCoord, centerAzimuth);
+  const moonTrajectory = buildFullDiurnalTrajectorySegments(moonArcPoints, projectCoord, centerAzimuth);
 
   // Dynamic Planet Trajectories (Venus, Mars, Jupiter, Saturn)
   const planetTrajectories: PlanetTrajectoryData[] = planetDefs.map((p) => ({
@@ -620,7 +762,7 @@ export function calculateCelestialEphemeris(
     color: p.color,
     symbol: p.symbol,
     points: planetArcPoints[p.id],
-    segments: buildAboveHorizonTrajectorySvgSegments(planetArcPoints[p.id], projectCoord),
+    segments: buildFullDiurnalTrajectorySegments(planetArcPoints[p.id], projectCoord, centerAzimuth),
   }));
 
   // 7. Constellation Stick-Figure Connection Lines
@@ -634,9 +776,10 @@ export function calculateCelestialEphemeris(
       const starB = starMap.get(idB);
       if (!starA || !starB) continue;
 
-      // Avoid wrapping artifact if line spans across the 0°/360° meridian seam
-      const azDiff = Math.abs(starA.azimuth - starB.azimuth);
-      if (azDiff > 180) continue;
+      // Avoid wrapping artifact if line spans across the screen edge seam
+      const relA = ((starA.azimuth - (centerAzimuth - 180)) % 360 + 360) % 360;
+      const relB = ((starB.azimuth - (centerAzimuth - 180)) % 360 + 360) % 360;
+      if (Math.abs(relA - relB) > 180) continue;
 
       const ptA = projectCoord(starA.azimuth, starA.altitude);
       const ptB = projectCoord(starB.azimuth, starB.altitude);
