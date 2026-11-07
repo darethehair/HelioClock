@@ -458,3 +458,34 @@
     font-weight: 700 !important;
   }
 }
+
+/* Persistent Bottom Date/Time Adjustment Bar */
+.time-control-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  z-index: 9999;
+  background: rgba(17, 24, 39, 0.85); /* Dark theme translucent slate */
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  box-sizing: border-box;
+}
+
+/* Ensure datetime-local input looks crisp and dark-themed across all browsers */
+.time-control-bar input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8) brightness(1.2) sepia(1) hue-rotate(180deg);
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+}
+
+.time-control-bar input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}

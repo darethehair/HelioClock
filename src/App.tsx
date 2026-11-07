@@ -9,6 +9,7 @@ import { WorldSolarMap } from './components/WorldSolarMap';
 import { EquirectangularSkyMap } from './components/EquirectangularSkyMap';
 import { CelestialDial } from './components/CelestialDial';
 import { DateTimeSimulationBar } from './components/DateTimeSimulationBar';
+import { PersistentTimeControlBar } from './components/PersistentTimeControlBar';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { CoordinateModal } from './components/CoordinateModal';
@@ -338,7 +339,7 @@ export default function App() {
 
       {/* Main Content Workspace (Full-Width Edge-to-Edge Layout - Clean Padding on Small Screens) */}
       <main
-        className={`flex-1 w-full space-y-6 transition-all duration-300 landscape-fullscreen-pad ${
+        className={`flex-1 w-full space-y-6 transition-all duration-300 landscape-fullscreen-pad pb-20 sm:pb-24 ${
           isFullscreen
             ? 'px-2 sm:px-4 py-3'
             : 'px-3 sm:px-6 lg:px-8 py-5 sm:py-7'
@@ -469,7 +470,7 @@ export default function App() {
       </main>
 
       {/* Footer with subtle attribution & GitHub repository link */}
-      <footer className="w-full border-t border-slate-900 bg-black/90 py-4 px-4 sm:px-8 text-xs font-mono text-slate-500">
+      <footer className="w-full border-t border-slate-900 bg-black/90 py-4 pb-24 sm:pb-20 px-4 sm:px-8 text-xs font-mono text-slate-500">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 max-w-7xl mx-auto">
           <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5 text-slate-500">
             <span className="font-semibold text-slate-400">HelioClock Astronomical PWA</span>
@@ -525,6 +526,15 @@ export default function App() {
       {/* Offline Status Toast */}
       <OfflineIndicator />
 
+      {/* Persistent Bottom Date/Time Adjustment Bar (Anchored across all views & fullscreens) */}
+      <PersistentTimeControlBar
+        currentDate={currentDate}
+        isLiveTrack={isLiveTrack}
+        onToggleLiveTrack={handleToggleLiveTrack}
+        onUpdateDateTime={handleUpdateDateTime}
+        onResetToLiveNow={handleResetToLiveNow}
+      />
+
       {/* Floating Exit Fullscreen Button (Active only in Fullscreen for quick collapse) */}
       {isFullscreen && (
         <button
@@ -532,7 +542,7 @@ export default function App() {
           onClick={toggleFullscreen}
           title="Exit Fullscreen Mode"
           aria-label="Exit Fullscreen Mode"
-          className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-3.5 py-2 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-mono text-xs font-bold shadow-2xl border border-amber-300 ring-2 ring-amber-400/50 transition-all cursor-pointer"
+          className="fixed bottom-20 right-4 z-[100001] flex items-center gap-2 px-3.5 py-2 rounded-full bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-mono text-xs font-bold shadow-2xl border border-amber-300 ring-2 ring-amber-400/50 transition-all cursor-pointer"
         >
           <Minimize2 className="w-4 h-4" />
           <span>Exit Fullscreen</span>
