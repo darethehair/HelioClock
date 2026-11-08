@@ -562,6 +562,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   const [showPlanets, setShowPlanets] = useState<boolean>(true);
   const [showGridLines, setShowGridLines] = useState<boolean>(true);
   const [showMilkyWay, setShowMilkyWay] = useState<boolean>(true);
+  const [showMilkyWayShading, setShowMilkyWayShading] = useState<boolean>(false);
   const [starMagLimit, setStarMagLimit] = useState<number>(6.5);
 
   // Latitude-Aware Default Center Azimuth State & Pan Interaction:
@@ -1659,6 +1660,31 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 />
               </div>
             )}
+
+            {/* Dedicated Milky Way Shading Toggle: Shading On / Off (Vector Outlines Only) */}
+            {projectionMode !== 'orrery' && showMilkyWay && (
+              <button
+                type="button"
+                onClick={() => setShowMilkyWayShading((prev) => !prev)}
+                className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg border font-mono text-[11px] transition cursor-pointer active:scale-95 shadow-xs ${
+                  showMilkyWayShading
+                    ? 'bg-purple-950/40 border-purple-500/50 text-purple-300'
+                    : 'bg-slate-900/90 border-slate-700/80 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                }`}
+                title={
+                  showMilkyWayShading
+                    ? 'Milky Way Shading: On (Translucent Fills & Dust Clouds). Click for Vector Outlines Only.'
+                    : 'Milky Way Shading: Off (Clean Cartographic Vector Outlines Only). Click to enable shading.'
+                }
+                aria-label={`Milky Way Shading: ${showMilkyWayShading ? 'On' : 'Off'}`}
+              >
+                <span className="text-slate-400 font-normal hidden xs:inline">Milky Way Shading:</span>
+                <span className="text-slate-400 font-normal xs:hidden">MW Shading:</span>
+                <span className={`font-semibold ${showMilkyWayShading ? 'text-purple-300' : 'text-amber-400'}`}>
+                  {showMilkyWayShading ? 'On' : 'Off'}
+                </span>
+              </button>
+            )}
             {/* Equirectangular Pan Center & Snap Reset Button */}
             {projectionMode === 'equirectangular' && (
               <div className="flex items-center gap-1.5 bg-slate-900/90 border border-slate-800 rounded-lg px-2 sm:px-2.5 py-1 text-[11px] font-mono shadow-xs font-normal">
@@ -1863,10 +1889,22 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
               </feMerge>
             </filter>
 
-            {/* Milky Way Diffuse Atmospheric Blur Filter */}
-            <filter id="milky-way-blur" x="-25%" y="-25%" width="150%" height="150%">
-              <feGaussianBlur stdDeviation="3.5" />
-            </filter>
+            {/* Milky Way Subtle Star-Chart Stipple Pattern */}
+            <pattern id="milky-way-stipple-pattern" width="10" height="10" patternUnits="userSpaceOnUse">
+              <circle cx="2.5" cy="2.5" r="0.6" fill="rgba(255, 255, 255, 0.12)" />
+              <circle cx="7.5" cy="7.5" r="0.5" fill="rgba(255, 255, 255, 0.09)" />
+              <circle cx="7.5" cy="2.5" r="0.4" fill="rgba(255, 255, 255, 0.06)" />
+              <circle cx="2.5" cy="7.5" r="0.4" fill="rgba(255, 255, 255, 0.06)" />
+            </pattern>
+
+            {/* Strict Vector Boundary Clip: Strictly restricts all shading inside the true galactic outline */}
+            {milkyWayData && milkyWayData.boundaryClipPaths && milkyWayData.boundaryClipPaths.length > 0 && (
+              <clipPath id="milky-way-boundary-clip">
+                {milkyWayData.boundaryClipPaths.map((pathD, idx) => (
+                  <path key={`mw-bclip-${idx}`} d={pathD} />
+                ))}
+              </clipPath>
+            )}
           </defs>
 
           {/* ======================================================== */}
@@ -3147,63 +3185,57 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
           {/* ======================================================== */}
           {projectionMode !== 'orrery' && (
             <>
-              {/* 5. LAYER: MILKY WAY DIFFUSE CELESTIAL BAND (Galactic Coordinates Projection) */}
+              {/* 5. LAYER: MILKY WAY CARTOGRAPHIC VECTOR OUTLINES & STRICTLY BOUNDED SHADING */}
               {showMilkyWay && milkyWayData && (
                 <g
                   clipPath={projectionMode === 'polar' ? 'url(#polar-horizon-clip)' : 'url(#plot-area-clip)'}
                   className="milky-way-container pointer-events-none select-none"
                 >
-                  {/* Outer Diffuse Cosmic Glow with Atmospheric Blur */}
-                  <g className="milky-way-outer" filter="url(#milky-way-blur)">
-                    {milkyWayData.outerBandQuads.map((quad, idx) => (
-                      <path
-                        key={`mw-out-${idx}`}
-                        d={quad.svgPath}
-                        fill={quad.fill}
-                        opacity={quad.opacity}
-                      />
-                    ))}
-                  </g>
+                  {/* --- CONDITIONAL SHADING FILLS (Strictly clipped directly inside the true vector outline) --- */}
+                  {showMilkyWayShading && (
+                    <g
+                      className="milky-way-shading-group"
+                      clipPath="url(#milky-way-boundary-clip)"
+                    >
+                      {/* 1. Extremely soft translucent white haze (rgba(255, 255, 255, 0.045)) */}
+                      <g className="milky-way-bounded-fill">
+                        {milkyWayData.boundedShadingQuads.map((quad, idx) => (
+                          <path
+                            key={`mw-shd-${idx}`}
+                            d={quad.svgPath}
+                            fill={quad.fill}
+                            opacity={quad.opacity}
+                          />
+                        ))}
+                      </g>
 
-                  {/* Inner Luminous Core Spine */}
-                  <g className="milky-way-core">
-                    {milkyWayData.innerCoreQuads.map((quad, idx) => (
-                      <path
-                        key={`mw-core-${idx}`}
-                        d={quad.svgPath}
-                        fill={quad.fill}
-                        opacity={quad.opacity}
-                      />
-                    ))}
-                  </g>
+                      {/* 2. Soft cartographic stippled overlay */}
+                      <g className="milky-way-stipple-layer" opacity={0.65}>
+                        {milkyWayData.boundaryClipPaths.map((pathD, idx) => (
+                          <path
+                            key={`mw-stip-${idx}`}
+                            d={pathD}
+                            fill="url(#milky-way-stipple-pattern)"
+                          />
+                        ))}
+                      </g>
+                    </g>
+                  )}
 
-                  {/* Luminous Star Cloud Highlights (Galactic Center, Cygnus, Scutum, Carina) */}
-                  <g className="milky-way-clouds" filter="url(#milky-way-blur)">
-                    {milkyWayData.cloudHighlights.map((cloud) => {
-                      if (projectionMode === 'polar' && cloud.altitude < 0) return null;
-                      const pt = projectCoord(cloud.azimuth, cloud.altitude);
-                      return (
-                        <ellipse
-                          key={`mw-cloud-${cloud.id}`}
-                          cx={pt.x}
-                          cy={pt.y}
-                          rx={cloud.radiusX}
-                          ry={cloud.radiusY}
-                          transform={`rotate(${cloud.rotationDeg}, ${pt.x}, ${pt.y})`}
-                          fill={cloud.color}
-                        />
-                      );
-                    })}
-                  </g>
-
-                  {/* Great Rift Dark Nebula Layer (Interstellar dust silhouette) */}
-                  <g className="milky-way-rift">
-                    {milkyWayData.darkRiftQuads.map((quad, idx) => (
+                  {/* --- TRUE CARTOGRAPHIC VECTOR OUTLINES & RIFT LINES (Always rendered when Milky Way is enabled) --- */}
+                  <g className="milky-way-outlines-group">
+                    {milkyWayData.outlinePaths.map((outline) => (
                       <path
-                        key={`mw-rift-${idx}`}
-                        d={quad.svgPath}
-                        fill={quad.fill}
-                        opacity={quad.opacity}
+                        key={outline.id}
+                        d={outline.svgPath}
+                        fill="none"
+                        stroke={outline.stroke}
+                        strokeWidth={outline.strokeWidth}
+                        strokeDasharray={outline.strokeDasharray}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        opacity={outline.opacity}
+                        className={`milky-way-outline-${outline.type}`}
                       />
                     ))}
                   </g>
