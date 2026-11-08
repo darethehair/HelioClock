@@ -9,6 +9,7 @@ import {
   TrajectorySegment,
   PlanetTrajectoryData,
 } from '../utils/celestialEphemeris';
+import { calculateMilkyWayRenderData, MilkyWayRenderData } from '../utils/milkyWayCalculator';
 import {
   computeLunarParameters,
   AccurateMoonSvg,
@@ -111,15 +112,27 @@ export function drawStars(
   const items = stars.map((star) => {
     const pt = projectCoord(star.azimuth, star.altitude);
     const mag = star.magnitude ?? 1.0;
-    const starRadius = isDesktop
-      ? Math.max(1.0, Math.min(3.2, 2.4 - mag * 0.45))
-      : Math.max(1.0, Math.min(5.0, 3.5 - mag * 0.75));
+    const baseScale = isDesktop ? 1.05 : 1.25;
+    const starRadius = Math.max(0.5, baseScale * Math.pow(Math.max(0.01, 7.2 - mag), 0.6));
+
+    let starAlpha: number;
+    if (mag <= 2.0) {
+      starAlpha = 0.95;
+    } else if (mag <= 5.0) {
+      starAlpha = 0.95 - (mag - 2.0) * (0.25 / 3.0);
+    } else {
+      starAlpha = 0.70 - (mag - 5.0) * (0.30 / 2.0);
+    }
+    starAlpha = Math.max(0.35, Math.min(1.0, starAlpha));
+
     const isLeft = star.azimuth < 180;
     const labelX = isLeft ? pt.x - 8 - starRadius : pt.x + 8 + starRadius;
     return {
       star,
       pt,
+      mag,
       starRadius,
+      starAlpha,
       isLeft,
       labelX,
       yOffset: 0,
@@ -158,19 +171,32 @@ export function drawStars(
   }
 
   for (const item of items) {
-    const { star, pt, starRadius, isLeft, labelX, yOffset, baseline } = item;
+    const { star, pt, mag, starRadius, starAlpha, isLeft, labelX, yOffset, baseline } = item;
+
+    // Subtle glow for bright stars (mag < 2)
+    if (mag < 2.0) {
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, starRadius * 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = star.color;
+      ctx.globalAlpha = 0.25;
+      ctx.fill();
+    }
 
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, starRadius, 0, Math.PI * 2);
     ctx.fillStyle = star.color;
+    ctx.globalAlpha = starAlpha;
     ctx.fill();
+    ctx.globalAlpha = 1.0;
 
-    // Absolute Text Opacity & Color: crisp soft silver-white (#d1d5db)
-    ctx.fillStyle = LABEL_COLOR;
-    ctx.textAlign = isLeft ? 'right' : 'left';
-    ctx.textBaseline = yOffset !== 0 ? baseline : 'middle';
-    ctx.font = getCanvasFont();
-    ctx.fillText(star.name, labelX, pt.y + yOffset);
+    // Only label anchors or prominent stars to prevent text clutter
+    if (star.isConstellationAnchor || mag <= 2.8) {
+      ctx.fillStyle = LABEL_COLOR;
+      ctx.textAlign = isLeft ? 'right' : 'left';
+      ctx.textBaseline = yOffset !== 0 ? baseline : 'middle';
+      ctx.font = getCanvasFont();
+      ctx.fillText(star.name, labelX, pt.y + yOffset);
+    }
   }
 }
 
@@ -535,6 +561,8 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   const [showStars, setShowStars] = useState<boolean>(true);
   const [showPlanets, setShowPlanets] = useState<boolean>(true);
   const [showGridLines, setShowGridLines] = useState<boolean>(true);
+  const [showMilkyWay, setShowMilkyWay] = useState<boolean>(true);
+  const [starMagLimit, setStarMagLimit] = useState<number>(6.5);
 
   // Latitude-Aware Default Center Azimuth State & Pan Interaction:
   // - Northern Hemisphere (latitude >= 0): default center points South (180°)
@@ -713,6 +741,27 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   const ephemeris = useMemo(() => {
     return calculateCelestialEphemeris(currentDate, latitude, longitude, projectCoord, centerAzimuth);
   }, [currentDate, latitude, longitude, projectCoord, centerAzimuth]);
+
+  // Filtered stars based on dynamic magnitude limit cutoff (3.0 up to 7.0)
+  const filteredStars = useMemo(() => {
+    return ephemeris.stars.filter(
+      (s) => s.magnitude === undefined || s.magnitude <= starMagLimit
+    );
+  }, [ephemeris.stars, starMagLimit]);
+
+  // Milky Way Band & Galactic Structure Render Data (outer glow, inner core, dark rift, star clouds)
+  const milkyWayData = useMemo(() => {
+    if (projectionMode === 'orrery' || !showMilkyWay) return null;
+    return calculateMilkyWayRenderData(
+      currentDate,
+      latitude,
+      longitude,
+      projectCoord,
+      projectionMode === 'polar',
+      centerAzimuth,
+      plotWidth
+    );
+  }, [currentDate, latitude, longitude, projectCoord, projectionMode, showMilkyWay, centerAzimuth, plotWidth]);
 
   // Sun screen coordinates
   const sunPos = useMemo(() => {
@@ -1345,7 +1394,9 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
   // Vertical overlap collision separation for stars in both Circular Polar and Equirectangular views
   const starCollisionMap = useMemo(() => {
     const map = new Map<string, { yOffset: number; dominantBaseline: 'auto' | 'hanging' }>();
-    const visible = ephemeris.stars.filter((s) => !(projectionMode === 'polar' && s.altitude < 0));
+    const visible = filteredStars.filter(
+      (s) => !(projectionMode === 'polar' && s.altitude < 0) && (s.isConstellationAnchor || (s.magnitude !== undefined && s.magnitude <= 2.8))
+    );
     const projected = visible.map((star) => {
       const pt = projectCoord(star.azimuth, star.altitude);
       let isLeft = star.azimuth < 180;
@@ -1376,7 +1427,7 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
       }
     }
     return map;
-  }, [ephemeris.stars, projectionMode, projectCoord, centerAzimuth]);
+  }, [filteredStars, projectionMode, projectCoord, centerAzimuth]);
 
   return (
     <div
@@ -1569,9 +1620,45 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 {projectionMode === 'orrery' ? 'Scales' : 'Grid Lines'}
               </span>
             </label>
+
+            {projectionMode !== 'orrery' && (
+              <>
+                <span className="text-slate-700">|</span>
+                <label className="flex items-center gap-1 cursor-pointer hover:text-white transition select-none">
+                  <input
+                    type="checkbox"
+                    checked={showMilkyWay}
+                    onChange={(e) => setShowMilkyWay(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded accent-purple-400 bg-slate-950 border-slate-700 cursor-pointer"
+                  />
+                  <span className={`skymap-control-label ${showMilkyWay ? 'text-purple-300 font-medium' : 'text-slate-500'}`}>
+                    Milky Way
+                  </span>
+                </label>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Dynamic Magnitude Limit Filter Control (Cutoff from 3.0 up to 7.0) */}
+            {projectionMode !== 'orrery' && showStars && (
+              <div className="flex items-center gap-1.5 bg-slate-900/90 border border-slate-800 rounded-lg px-2 sm:px-2.5 py-1 text-[11px] font-mono shadow-xs font-normal">
+                <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span className="text-slate-400 hidden xs:inline">Cutoff:</span>
+                <span className="text-cyan-300 font-semibold w-7 text-right">≤{starMagLimit.toFixed(1)}</span>
+                <input
+                  type="range"
+                  min={3.0}
+                  max={7.0}
+                  step={0.5}
+                  value={starMagLimit}
+                  onChange={(e) => setStarMagLimit(parseFloat(e.target.value))}
+                  className="w-14 sm:w-20 h-1.5 accent-cyan-400 bg-slate-950 rounded-lg cursor-pointer"
+                  title={`Adjust star catalog magnitude cutoff (≤ mag ${starMagLimit.toFixed(1)})`}
+                  aria-label="Star catalog magnitude cutoff limit"
+                />
+              </div>
+            )}
             {/* Equirectangular Pan Center & Snap Reset Button */}
             {projectionMode === 'equirectangular' && (
               <div className="flex items-center gap-1.5 bg-slate-900/90 border border-slate-800 rounded-lg px-2 sm:px-2.5 py-1 text-[11px] font-mono shadow-xs font-normal">
@@ -1774,6 +1861,11 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                 <feMergeNode in="blur" />
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
+            </filter>
+
+            {/* Milky Way Diffuse Atmospheric Blur Filter */}
+            <filter id="milky-way-blur" x="-25%" y="-25%" width="150%" height="150%">
+              <feGaussianBlur stdDeviation="3.5" />
             </filter>
           </defs>
 
@@ -3055,80 +3147,166 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
           {/* ======================================================== */}
           {projectionMode !== 'orrery' && (
             <>
-              {/* 6. LAYER: MAJOR STARS (Sirius, Betelgeuse, Rigel, Vega) */}
+              {/* 5. LAYER: MILKY WAY DIFFUSE CELESTIAL BAND (Galactic Coordinates Projection) */}
+              {showMilkyWay && milkyWayData && (
+                <g
+                  clipPath={projectionMode === 'polar' ? 'url(#polar-horizon-clip)' : 'url(#plot-area-clip)'}
+                  className="milky-way-container pointer-events-none select-none"
+                >
+                  {/* Outer Diffuse Cosmic Glow with Atmospheric Blur */}
+                  <g className="milky-way-outer" filter="url(#milky-way-blur)">
+                    {milkyWayData.outerBandQuads.map((quad, idx) => (
+                      <path
+                        key={`mw-out-${idx}`}
+                        d={quad.svgPath}
+                        fill={quad.fill}
+                        opacity={quad.opacity}
+                      />
+                    ))}
+                  </g>
+
+                  {/* Inner Luminous Core Spine */}
+                  <g className="milky-way-core">
+                    {milkyWayData.innerCoreQuads.map((quad, idx) => (
+                      <path
+                        key={`mw-core-${idx}`}
+                        d={quad.svgPath}
+                        fill={quad.fill}
+                        opacity={quad.opacity}
+                      />
+                    ))}
+                  </g>
+
+                  {/* Luminous Star Cloud Highlights (Galactic Center, Cygnus, Scutum, Carina) */}
+                  <g className="milky-way-clouds" filter="url(#milky-way-blur)">
+                    {milkyWayData.cloudHighlights.map((cloud) => {
+                      if (projectionMode === 'polar' && cloud.altitude < 0) return null;
+                      const pt = projectCoord(cloud.azimuth, cloud.altitude);
+                      return (
+                        <ellipse
+                          key={`mw-cloud-${cloud.id}`}
+                          cx={pt.x}
+                          cy={pt.y}
+                          rx={cloud.radiusX}
+                          ry={cloud.radiusY}
+                          transform={`rotate(${cloud.rotationDeg}, ${pt.x}, ${pt.y})`}
+                          fill={cloud.color}
+                        />
+                      );
+                    })}
+                  </g>
+
+                  {/* Great Rift Dark Nebula Layer (Interstellar dust silhouette) */}
+                  <g className="milky-way-rift">
+                    {milkyWayData.darkRiftQuads.map((quad, idx) => (
+                      <path
+                        key={`mw-rift-${idx}`}
+                        d={quad.svgPath}
+                        fill={quad.fill}
+                        opacity={quad.opacity}
+                      />
+                    ))}
+                  </g>
+                </g>
+              )}
+
+              {/* 6. LAYER: STARS (Expanded Catalog down to Mag 7.0 with Magnitude Filter and Dynamic Sizing/Alpha) */}
               {/* STRICTLY PLOTTED AS INDIVIDUAL POINT MARKERS WITH CLEAN UN-BOXED LABELS AND ZERO PATHS */}
               {showStars && (
                 <g clipPath={projectionMode === 'polar' ? 'url(#polar-horizon-clip)' : 'url(#plot-area-clip)'}>
-              {ephemeris.stars.map((star) => {
-                // In polar mode, completely cull/hide any stars that drop below 0° Altitude
-                if (projectionMode === 'polar' && star.altitude < 0) return null;
+                  {filteredStars.map((star) => {
+                    // In polar mode, completely cull/hide any stars that drop below 0° Altitude
+                    if (projectionMode === 'polar' && star.altitude < 0) return null;
 
-                const pt = projectCoord(star.azimuth, star.altitude);
-                const isSelected = selectedPoint?.id === star.id;
-                const mag = star.magnitude ?? 1.0;
-                // Dynamic Magnitude Star Sizing: Brighter stars appear larger, scaled elegantly on desktop to prevent clustering overlap
-                const starRadius = isDesktop
-                  ? Math.max(1.0, Math.min(3.2, 2.4 - mag * 0.45))
-                  : Math.max(1.0, Math.min(5.0, 3.5 - mag * 0.75));
+                    const pt = projectCoord(star.azimuth, star.altitude);
+                    const isSelected = selectedPoint?.id === star.id;
+                    const mag = star.magnitude ?? 1.0;
 
-                return (
-                  <g
-                    key={`star-${star.id}`}
-                    transform={`translate(${pt.x}, ${pt.y})`}
-                    className="cursor-pointer transition-transform hover:scale-125"
-                    onClick={() => {
-                      if (suppressClickRef.current) return;
-                      setSelectedPoint(star);
-                    }}
-                  >
-                    {/* Subtle selection ring */}
-                    {isSelected && (
-                      <circle
-                        cx="0"
-                        cy="0"
-                        r={starRadius + 8}
-                        fill="none"
-                        stroke={star.color}
-                        strokeWidth="1"
-                        strokeDasharray="2 2"
-                        className="animate-spin"
-                      />
-                    )}
+                    // Astronomical radius formula: radius = max(0.5, baseScale * (7.2 - mag)^0.6)
+                    const baseScale = isDesktop ? 1.05 : 1.25;
+                    const starRadius = Math.max(0.5, baseScale * Math.pow(Math.max(0.01, 7.2 - mag), 0.6));
 
-                    {/* Strictly ONE element: clean, solid, filled circular arc scaling to astronomical magnitude */}
-                    <circle
-                      cx="0"
-                      cy="0"
-                      r={starRadius}
-                      fill={star.color}
-                    />
+                    // Alpha / Intensity Scaling: Dim fainter stars (mag 5-7) to 0.40-0.70, bright stars (mag < 2) at 0.95
+                    let starAlpha: number;
+                    if (mag <= 2.0) {
+                      starAlpha = 0.95;
+                    } else if (mag <= 5.0) {
+                      starAlpha = 0.95 - (mag - 2.0) * (0.25 / 3.0);
+                    } else {
+                      starAlpha = 0.70 - (mag - 5.0) * (0.30 / 2.0);
+                    }
+                    starAlpha = Math.max(0.35, Math.min(1.0, starAlpha));
 
-                    {/* Clean, Un-Boxed Star Label with Azimuth Displaced 8px Padding & Vertical Collision Separation */}
-                    {(() => {
-                      const collision = starCollisionMap.get(star.id);
-                      const vOffset = collision ? collision.yOffset : 0;
-                      const pos = getStarLabelPosition(star.azimuth, starRadius, vOffset);
-                      return (
-                        <text
-                          x={pos.x}
-                          y={pos.y}
-                          textAnchor={pos.textAnchor}
-                          dominantBaseline={collision ? collision.dominantBaseline : undefined}
-                          fill={LABEL_COLOR}
-                          fontSize={isDesktop ? "9" : "14"}
-                          fontFamily="sans-serif"
-                          fontWeight="normal"
-                          className="skymap-star-label select-none pointer-events-none"
-                        >
-                          {star.name}
-                        </text>
-                      );
-                    })()}
-                  </g>
-                );
-              })}
-            </g>
-          )}
+                    return (
+                      <g
+                        key={`star-${star.id}`}
+                        transform={`translate(${pt.x}, ${pt.y})`}
+                        className="cursor-pointer transition-transform hover:scale-125"
+                        onClick={() => {
+                          if (suppressClickRef.current) return;
+                          setSelectedPoint(star);
+                        }}
+                      >
+                        {/* Subtle selection ring */}
+                        {isSelected && (
+                          <circle
+                            cx="0"
+                            cy="0"
+                            r={starRadius + 8}
+                            fill="none"
+                            stroke={star.color}
+                            strokeWidth="1"
+                            strokeDasharray="2 2"
+                            className="animate-spin"
+                          />
+                        )}
+
+                        {/* Subtle glow halo for bright stars (mag < 2) */}
+                        {mag < 2.0 && (
+                          <circle
+                            cx="0"
+                            cy="0"
+                            r={starRadius * 2.2}
+                            fill={star.color}
+                            opacity={0.25}
+                          />
+                        )}
+
+                        {/* Star disk with brightness-scaled magnitude radius & alpha */}
+                        <circle
+                          cx="0"
+                          cy="0"
+                          r={starRadius}
+                          fill={star.color}
+                          opacity={starAlpha}
+                        />
+
+                        {/* Clean Star Label for prominent anchors / bright stars / selected star */}
+                        {(star.isConstellationAnchor || mag <= 2.8 || isSelected) && (() => {
+                          const collision = starCollisionMap.get(star.id);
+                          const vOffset = collision ? collision.yOffset : 0;
+                          const pos = getStarLabelPosition(star.azimuth, starRadius, vOffset);
+                          return (
+                            <text
+                              x={pos.x}
+                              y={pos.y}
+                              textAnchor={pos.textAnchor}
+                              dominantBaseline={collision ? collision.dominantBaseline : undefined}
+                              fill={LABEL_COLOR}
+                              fontSize={isDesktop ? "9" : "14"}
+                              fontFamily="sans-serif"
+                              fontWeight={star.isConstellationAnchor ? "bold" : "normal"}
+                              className="skymap-star-label select-none pointer-events-none"
+                            >
+                              {star.name}
+                            </text>
+                          );
+                        })()}
+                      </g>
+                    );
+                  })}
+                </g>
+              )}
 
           {/* 7. LAYER: VISIBLE PLANETS (Mars, Jupiter, Venus, Saturn) */}
           {/* STRICTLY PLOTTED AS INDIVIDUAL POINT MARKERS WITH CLEAN UN-BOXED LABELS AND ZERO PATHS */}

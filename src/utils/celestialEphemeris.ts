@@ -126,8 +126,10 @@ export function equatorialToHorizontal(
 }
 
 /**
- * Major stars catalog with true astronomical apparent magnitude (J2000 RA & Dec)
+ * Expanded stars catalog with true astronomical apparent magnitude (J2000 RA & Dec)
  */
+import { EXPANDED_STAR_CATALOG } from '../data/starCatalog';
+
 export interface StarCatalogDef {
   id: string;
   name: string;
@@ -139,45 +141,8 @@ export interface StarCatalogDef {
   isAnchor?: boolean;
 }
 
-export const MAJOR_STARS: StarCatalogDef[] = [
-  // Primary Bright Stars (Mag < 1.0)
-  { id: 'sirius', name: 'Sirius', ra: 101.287, dec: -16.716, mag: -1.46, color: '#93c5fd', constellation: 'Canis Major', isAnchor: true },
-  { id: 'canopus', name: 'Canopus', ra: 95.988, dec: -52.696, mag: -0.74, color: '#ffffff', constellation: 'Carina', isAnchor: true },
-  { id: 'arcturus', name: 'Arcturus', ra: 213.915, dec: 19.182, mag: -0.05, color: '#fed7aa', constellation: 'Boötes', isAnchor: true },
-  { id: 'vega', name: 'Vega', ra: 279.234, dec: 38.784, mag: 0.03, color: '#e0f2fe', constellation: 'Lyra', isAnchor: true },
-  { id: 'capella', name: 'Capella', ra: 79.172, dec: 45.998, mag: 0.08, color: '#fef08a', constellation: 'Auriga', isAnchor: true },
-  { id: 'rigel', name: 'Rigel', ra: 78.634, dec: -8.202, mag: 0.13, color: '#67e8f9', constellation: 'Orion', isAnchor: true },
-  { id: 'procyon', name: 'Procyon', ra: 114.825, dec: 5.225, mag: 0.34, color: '#f8fafc', constellation: 'Canis Minor', isAnchor: true },
-  { id: 'betelgeuse', name: 'Betelgeuse', ra: 88.793, dec: 7.407, mag: 0.50, color: '#fb923c', constellation: 'Orion', isAnchor: true },
-  { id: 'altair', name: 'Altair', ra: 297.696, dec: 8.868, mag: 0.77, color: '#f1f5f9', constellation: 'Aquila', isAnchor: true },
-  { id: 'aldebaran', name: 'Aldebaran', ra: 68.980, dec: 16.509, mag: 0.85, color: '#fb923c', constellation: 'Taurus', isAnchor: true },
-  { id: 'spica', name: 'Spica', ra: 201.298, dec: -11.161, mag: 0.98, color: '#7dd3fc', constellation: 'Virgo', isAnchor: true },
-
-  // Prominent Stars (1.0 < Mag < 2.0)
-  { id: 'antares', name: 'Antares', ra: 247.352, dec: -26.432, mag: 1.06, color: '#f87171', constellation: 'Scorpius', isAnchor: true },
-  { id: 'pollux', name: 'Pollux', ra: 116.329, dec: 28.026, mag: 1.14, color: '#fed7aa', constellation: 'Gemini', isAnchor: true },
-  { id: 'deneb', name: 'Deneb', ra: 310.358, dec: 45.280, mag: 1.25, color: '#e0f2fe', constellation: 'Cygnus', isAnchor: true },
-  { id: 'regulus', name: 'Regulus', ra: 152.093, dec: 11.967, mag: 1.36, color: '#93c5fd', constellation: 'Leo', isAnchor: true },
-  { id: 'castor', name: 'Castor', ra: 113.650, dec: 31.888, mag: 1.58, color: '#e2e8f0', constellation: 'Gemini', isAnchor: true },
-  { id: 'bellatrix', name: 'Bellatrix', ra: 81.283, dec: 6.350, mag: 1.64, color: '#93c5fd', constellation: 'Orion', isAnchor: true },
-  { id: 'alnilam', name: 'Alnilam', ra: 84.053, dec: -1.202, mag: 1.69, color: '#93c5fd', constellation: 'Orion', isAnchor: true },
-  { id: 'alioth', name: 'Alioth', ra: 193.507, dec: 55.960, mag: 1.77, color: '#f8fafc', constellation: 'Ursa Major', isAnchor: true },
-  { id: 'dubhe', name: 'Dubhe', ra: 165.932, dec: 61.751, mag: 1.79, color: '#fde047', constellation: 'Ursa Major', isAnchor: true },
-  { id: 'alkaid', name: 'Alkaid', ra: 206.885, dec: 49.313, mag: 1.86, color: '#93c5fd', constellation: 'Ursa Major', isAnchor: true },
-  { id: 'polaris', name: 'Polaris', ra: 37.955, dec: 89.264, mag: 1.98, color: '#fef9c3', constellation: 'Ursa Minor', isAnchor: true },
-
-  // Constellation Anchor & Fainter Stars (Mag 2.0 - 3.4)
-  { id: 'saiph', name: 'Saiph', ra: 86.939, dec: -9.670, mag: 2.07, color: '#93c5fd', constellation: 'Orion', isAnchor: true },
-  { id: 'mizar', name: 'Mizar', ra: 200.981, dec: 54.925, mag: 2.23, color: '#f8fafc', constellation: 'Ursa Major', isAnchor: true },
-  { id: 'shedar', name: 'Shedar', ra: 10.127, dec: 56.537, mag: 2.24, color: '#fed7aa', constellation: 'Cassiopeia', isAnchor: true },
-  { id: 'caph', name: 'Caph', ra: 2.295, dec: 59.150, mag: 2.28, color: '#f8fafc', constellation: 'Cassiopeia', isAnchor: true },
-  { id: 'merak', name: 'Merak', ra: 165.460, dec: 56.382, mag: 2.37, color: '#f8fafc', constellation: 'Ursa Major', isAnchor: true },
-  { id: 'phecda', name: 'Phecda', ra: 178.458, dec: 53.695, mag: 2.44, color: '#f8fafc', constellation: 'Ursa Major', isAnchor: true },
-  { id: 'navi', name: 'Navi', ra: 14.177, dec: 60.717, mag: 2.47, color: '#7dd3fc', constellation: 'Cassiopeia', isAnchor: true },
-  { id: 'ruchbah', name: 'Ruchbah', ra: 20.201, dec: 60.235, mag: 2.68, color: '#f8fafc', constellation: 'Cassiopeia', isAnchor: true },
-  { id: 'megrez', name: 'Megrez', ra: 183.857, dec: 57.032, mag: 3.32, color: '#94a3b8', constellation: 'Ursa Major', isAnchor: true },
-  { id: 'segin', name: 'Segin', ra: 26.654, dec: 63.670, mag: 3.37, color: '#93c5fd', constellation: 'Cassiopeia', isAnchor: true },
-];
+export const MAJOR_STARS: StarCatalogDef[] = EXPANDED_STAR_CATALOG;
+export { EXPANDED_STAR_CATALOG };
 
 export const CONSTELLATION_LINES: { constellation: string; pairs: [string, string][] }[] = [
   {
