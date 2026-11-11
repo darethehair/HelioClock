@@ -972,6 +972,29 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
     });
   }, [projectionMode, ephemeris.planetTrajectories, projectCoord]);
 
+  // Instantaneous Ecliptic Path for Circular Polar Projection (Filtered strictly to alt >= 0)
+  const polarEclipticSegments = useMemo(() => {
+    if (projectionMode !== 'polar' || !ephemeris.eclipticSegments) return [];
+    const paths: string[] = [];
+    for (const seg of ephemeris.eclipticSegments) {
+      let chunk: { x: number; y: number }[] = [];
+      for (const pt of seg.points) {
+        if (pt.alt >= 0) {
+          chunk.push(projectCoord(pt.az, pt.alt));
+        } else {
+          if (chunk.length >= 2) {
+            paths.push('M ' + chunk.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '));
+          }
+          chunk = [];
+        }
+      }
+      if (chunk.length >= 2) {
+        paths.push('M ' + chunk.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L '));
+      }
+    }
+    return paths;
+  }, [projectionMode, ephemeris.eclipticSegments, projectCoord]);
+
   // Sky auto-dimming theme colors & graduated solar glow stops based on Sun Altitude
   const skyTheme = useMemo(() => {
     const alt = ephemeris.sun.altitude;
@@ -2219,6 +2242,24 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                         );
                       })
                     )}
+
+                  {/* Instantaneous Ecliptic Path (Sun & Planet Plane across the Sky) */}
+                  {ephemeris.eclipticSegments?.map((seg, idx) => {
+                    const isAbove = seg.isAboveHorizon ?? (seg.points[0]?.alt >= 0);
+                    return (
+                      <path
+                        key={`ecliptic-traj-${idx}`}
+                        d={seg.svgPath}
+                        fill="none"
+                        stroke="#eab308"
+                        strokeWidth={isAbove ? '1.4' : '0.9'}
+                        strokeDasharray={isAbove ? '6 4' : '3 4'}
+                        strokeOpacity={isAbove ? '0.65' : '0.25'}
+                        strokeLinecap="round"
+                        className="skymap-path-ecliptic"
+                      />
+                    );
+                  })}
                 </g>
               )}
             </>
@@ -2600,6 +2641,21 @@ export const EquirectangularSkyMap: React.FC<EquirectangularSkyMapProps> = ({
                         />
                       ))
                     )}
+
+                  {/* Instantaneous Ecliptic Path in Polar Mode */}
+                  {polarEclipticSegments.map((pathStr, idx) => (
+                    <path
+                      key={`polar-ecliptic-traj-${idx}`}
+                      d={pathStr}
+                      fill="none"
+                      stroke="#eab308"
+                      strokeWidth="1.2"
+                      strokeDasharray="5 3"
+                      strokeOpacity="0.55"
+                      strokeLinecap="round"
+                      className="skymap-path-ecliptic"
+                    />
+                  ))}
                 </g>
               )}
             </>

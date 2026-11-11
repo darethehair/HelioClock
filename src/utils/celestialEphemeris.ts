@@ -37,8 +37,10 @@ export interface ConstellationLineSegment {
   svgPath: string;
 }
 
+export type PlanetId = 'mercury' | 'venus' | 'mars' | 'jupiter' | 'saturn';
+
 export interface PlanetTrajectoryData {
-  id: 'venus' | 'mars' | 'jupiter' | 'saturn';
+  id: PlanetId;
   name: string;
   color: string;
   symbol: string;
@@ -58,6 +60,7 @@ export interface CelestialEphemerisData {
   sunTrajectory: TrajectorySegment[];
   moonTrajectory: TrajectorySegment[];
   planetTrajectories: PlanetTrajectoryData[];
+  eclipticSegments?: TrajectorySegment[];
   constellationLines: ConstellationLineSegment[];
   detailedMoon: DetailedMoonMetrics;
 }
@@ -272,64 +275,187 @@ function getMoonEquatorial(jd: number): { ra: number; dec: number; illumination:
 }
 
 /**
- * Low-precision planetary equatorial coordinates (Jean Meeus approximations)
+ * Standard NASA/JPL J2000.0 Keplerian Orbital Elements and Century Rates
+ * for high-precision geocentric planetary positions.
  */
-function getPlanetEquatorial(planet: 'mars' | 'jupiter' | 'venus' | 'saturn', jd: number): { ra: number; dec: number; mag: number } {
+interface PlanetaryKeplerianParams {
+  a0: number; aRate: number; // Semi-major axis (AU, AU/century)
+  e0: number; eRate: number; // Eccentricity, 1/century
+  I0: number; IRate: number; // Inclination (deg, deg/century)
+  L0: number; LRate: number; // Mean longitude (deg, deg/century)
+  varpi0: number; varpiRate: number; // Longitude of perihelion (deg, deg/century)
+  node0: number; nodeRate: number; // Longitude of ascending node (deg, deg/century)
+}
+
+const PLANETARY_KEPLER_ELEMENTS: Record<PlanetId | 'earth', PlanetaryKeplerianParams> = {
+  mercury: {
+    a0: 0.38709927, aRate: 0.00000037,
+    e0: 0.20563593, eRate: 0.00001906,
+    I0: 7.004979, IRate: -0.005947,
+    L0: 252.250323, LRate: 149472.674111,
+    varpi0: 77.457796, varpiRate: 1.556478,
+    node0: 48.330765, nodeRate: -0.125341,
+  },
+  venus: {
+    a0: 0.72333566, aRate: 0.00000390,
+    e0: 0.00677672, eRate: -0.00004107,
+    I0: 3.394676, IRate: -0.000789,
+    L0: 181.979099, LRate: 58517.815387,
+    varpi0: 131.602467, varpiRate: 1.402229,
+    node0: 76.679843, nodeRate: -0.277694,
+  },
+  earth: {
+    a0: 1.00000261, aRate: 0.00000562,
+    e0: 0.01671123, eRate: -0.00004392,
+    I0: 0.000015, IRate: -0.012947,
+    L0: 100.464572, LRate: 35999.372449,
+    varpi0: 102.937682, varpiRate: 0.323274,
+    node0: 0.0, nodeRate: 0.0,
+  },
+  mars: {
+    a0: 1.52371034, aRate: 0.00001847,
+    e0: 0.09339410, eRate: 0.00007882,
+    I0: 1.849691, IRate: -0.008131,
+    L0: 355.446562, LRate: 19140.302685,
+    varpi0: 336.056370, varpiRate: 1.841045,
+    node0: 49.559539, nodeRate: -0.292573,
+  },
+  jupiter: {
+    a0: 5.20288700, aRate: -0.00011607,
+    e0: 0.04838624, eRate: -0.00013253,
+    I0: 1.304397, IRate: -0.001837,
+    L0: 34.396440, LRate: 3034.746128,
+    varpi0: 14.728479, varpiRate: 1.619969,
+    node0: 100.473909, nodeRate: 0.204691,
+  },
+  saturn: {
+    a0: 9.53667594, aRate: -0.00125060,
+    e0: 0.05386179, eRate: -0.00050991,
+    I0: 2.485992, IRate: 0.001936,
+    L0: 49.954244, LRate: 1222.493622,
+    varpi0: 92.598878, varpiRate: -0.418972,
+    node0: 113.662424, nodeRate: -0.288678,
+  },
+};
+
+/**
+ * Computes 3D Heliocentric Ecliptic coordinates (X, Y, Z in AU) for any planet at Julian century T.
+ */
+function getHeliocentricKeplerian(planetKey: PlanetId | 'earth', T: number): { x: number; y: number; z: number; r: number } {
+  const p = PLANETARY_KEPLER_ELEMENTS[planetKey];
+  const a = p.a0 + p.aRate * T;
+  const e = p.e0 + p.eRate * T;
+  const I = (p.I0 + p.IRate * T) * DEG2RAD;
+  const L = ((p.L0 + p.LRate * T) % 360 + 360) % 360;
+  const varpi = ((p.varpi0 + p.varpiRate * T) % 360 + 360) % 360;
+  const node = ((p.node0 + p.nodeRate * T) % 360 + 360) % 360;
+
+  const omega = (varpi - node) * DEG2RAD; // Argument of perihelion
+  const nodeRad = node * DEG2RAD;
+
+  // Mean anomaly M
+  const M_deg = ((L - varpi) % 360 + 360) % 360;
+  const M_rad = M_deg * DEG2RAD;
+
+  // Solve Kepler equation: M = E - e*sin(E) using Newton-Raphson iteration
+  let E = M_rad + e * Math.sin(M_rad);
+  for (let i = 0; i < 10; i++) {
+    const dE = (E - e * Math.sin(E) - M_rad) / (1 - e * Math.cos(E));
+    E -= dE;
+    if (Math.abs(dE) < 1e-10) break;
+  }
+
+  // True anomaly nu
+  const sinNu = (Math.sqrt(Math.max(0, 1 - e * e)) * Math.sin(E)) / (1 - e * Math.cos(E));
+  const cosNu = (Math.cos(E) - e) / (1 - e * Math.cos(E));
+  const nu = Math.atan2(sinNu, cosNu);
+
+  // Heliocentric radius r in AU
+  const r = a * (1 - e * Math.cos(E));
+
+  // Argument of latitude u = omega + nu
+  const u = omega + nu;
+
+  // 3D Heliocentric Ecliptic coordinates (AU)
+  const x = r * (Math.cos(nodeRad) * Math.cos(u) - Math.sin(nodeRad) * Math.sin(u) * Math.cos(I));
+  const y = r * (Math.sin(nodeRad) * Math.cos(u) + Math.cos(nodeRad) * Math.sin(u) * Math.cos(I));
+  const z = r * (Math.sin(u) * Math.sin(I));
+
+  return { x, y, z, r };
+}
+
+/**
+ * Step 1 & Step 2: Accurate Geocentric Ecliptic-to-Equatorial Coordinate Transformation
+ * Returns Right Ascension, Declination, apparent Visual Magnitude, distance (AU),
+ * and Geocentric Ecliptic Latitude & Longitude.
+ */
+export function getPlanetEquatorial(
+  planet: PlanetId,
+  jd: number
+): { ra: number; dec: number; mag: number; distanceAU: number; eclipticLat: number; eclipticLon: number } {
+  const T = (jd - 2451545.0) / 36525; // Julian centuries since J2000.0
   const d = jd - 2451545.0;
 
-  // Mean orbital longitudes & elements
-  let L = 0;
-  let a = 1.0;
-  let mag = 0;
+  // Step 1: Heliocentric position of Planet (Xp, Yp, Zp) and Earth (Xe, Ye, Ze)
+  const hp = getHeliocentricKeplerian(planet, T);
+  const he = getHeliocentricKeplerian('earth', T);
 
+  // Subtract Earth vector to get Geocentric coordinates: ΔX = Xp - Xe, ΔY = Yp - Ye, ΔZ = Zp - Ze
+  const dx = hp.x - he.x;
+  const dy = hp.y - he.y;
+  const dz = hp.z - he.z;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+  // Geocentric Ecliptic Coordinates (demonstrates planet lies within ±7° of the Ecliptic)
+  const eclipticLon = ((Math.atan2(dy, dx) * RAD2DEG) % 360 + 360) % 360;
+  const eclipticLat = Math.asin(Math.max(-1, Math.min(1, dz / dist))) * RAD2DEG;
+
+  // Step 2: Convert Geocentric Ecliptic to Equatorial (RA, Dec) via true obliquity of the ecliptic
+  const eps = (23.439291 - 0.00000036 * d) * DEG2RAD;
+  const cosEps = Math.cos(eps);
+  const sinEps = Math.sin(eps);
+
+  // User specification:
+  // tan(alpha) = (ΔY * cos(eps) - ΔZ * sin(eps)) / ΔX
+  // sin(delta) = (ΔY * sin(eps) + ΔZ * cos(eps)) / sqrt(ΔX^2 + ΔY^2 + ΔZ^2)
+  const xEq = dx;
+  const yEq = dy * cosEps - dz * sinEps;
+  const zEq = dy * sinEps + dz * cosEps;
+
+  const ra = ((Math.atan2(yEq, xEq) * RAD2DEG) % 360 + 360) % 360;
+  const dec = Math.asin(Math.max(-1, Math.min(1, zEq / dist))) * RAD2DEG;
+
+  // Astronomical Visual Magnitude formula (Meeus / Astronomical Almanac)
+  const rSun = hp.r;
+  const rEarth = he.r;
+  const cosPhase = Math.max(-1, Math.min(1, (rSun * rSun + dist * dist - rEarth * rEarth) / (2 * rSun * dist)));
+  const phaseAngle = Math.acos(cosPhase) * RAD2DEG;
+
+  let mag = 1.0;
   switch (planet) {
+    case 'mercury':
+      mag = -0.36 + 5 * Math.log10(rSun * dist) + 0.038 * phaseAngle - 0.000273 * phaseAngle * phaseAngle + 0.000002 * Math.pow(phaseAngle, 3);
+      mag = Math.max(-2.0, Math.min(5.5, mag));
+      break;
     case 'venus':
-      L = ((181.979 + 1.602130 * d) % 360 + 360) % 360;
-      a = 0.7233;
-      mag = -4.1;
+      mag = -4.34 + 5 * Math.log10(rSun * dist) + 0.0009 * phaseAngle + 0.000239 * phaseAngle * phaseAngle - 0.00000065 * Math.pow(phaseAngle, 3);
+      mag = Math.max(-4.9, Math.min(-3.7, mag));
       break;
     case 'mars':
-      L = ((355.433 + 0.524033 * d) % 360 + 360) % 360;
-      a = 1.5237;
-      mag = 0.4;
+      mag = -1.52 + 5 * Math.log10(rSun * dist) + 0.016 * phaseAngle;
+      mag = Math.max(-2.9, Math.min(1.8, mag));
       break;
     case 'jupiter':
-      L = ((34.351 + 0.083085 * d) % 360 + 360) % 360;
-      a = 5.2026;
-      mag = -2.2;
+      mag = -9.25 + 5 * Math.log10(rSun * dist) + 0.005 * phaseAngle;
+      mag = Math.max(-2.9, Math.min(-1.6, mag));
       break;
     case 'saturn':
-      L = ((50.077 + 0.033444 * d) % 360 + 360) % 360;
-      a = 9.5547;
-      mag = 0.6;
+      mag = -8.88 + 5 * Math.log10(rSun * dist) + 0.044 * phaseAngle;
+      mag = Math.max(-0.3, Math.min(1.5, mag));
       break;
   }
 
-  // Earth's heliocentric position
-  const Ls = ((280.460 + 0.985647 * d) % 360 + 360) % 360;
-  const xe = Math.cos(Ls * DEG2RAD);
-  const ye = Math.sin(Ls * DEG2RAD);
-
-  // Heliocentric planet coordinates (circular approximation)
-  const xp = a * Math.cos(L * DEG2RAD);
-  const yp = a * Math.sin(L * DEG2RAD);
-
-  // Geocentric coordinates
-  const xg = xp - xe;
-  const yg = yp - ye;
-  const geoLon = ((Math.atan2(yg, xg) * RAD2DEG) % 360 + 360) % 360;
-
-  const e = 23.439 - 0.00000036 * d;
-  const eRad = e * DEG2RAD;
-  const geoLonRad = geoLon * DEG2RAD;
-
-  const sinDec = Math.sin(eRad) * Math.sin(geoLonRad);
-  const dec = Math.asin(sinDec) * RAD2DEG;
-  const y = Math.cos(eRad) * Math.sin(geoLonRad);
-  const x = Math.cos(geoLonRad);
-  const ra = ((Math.atan2(y, x) * RAD2DEG) % 360 + 360) % 360;
-
-  return { ra, dec, mag };
+  return { ra, dec, mag, distanceAU: dist, eclipticLat, eclipticLon };
 }
 
 /**
@@ -645,8 +771,9 @@ export function calculateCelestialEphemeris(
     };
   });
 
-  // 4. Visible Planets (Mars, Jupiter, Venus, Saturn) - STRICTLY INDIVIDUAL POINT MARKERS, ZERO PATHS
-  const planetDefs: { id: 'venus' | 'mars' | 'jupiter' | 'saturn'; name: string; color: string; symbol: string }[] = [
+  // 4. Visible Planets (Mercury, Venus, Mars, Jupiter, Saturn)
+  const planetDefs: { id: PlanetId; name: string; color: string; symbol: string }[] = [
+    { id: 'mercury', name: 'Mercury', color: '#cbd5e1', symbol: '☿' },
     { id: 'venus', name: 'Venus', color: '#fef08a', symbol: '♀' },
     { id: 'mars', name: 'Mars', color: '#f87171', symbol: '♂' },
     { id: 'jupiter', name: 'Jupiter', color: '#fed7aa', symbol: '♃' },
@@ -665,14 +792,15 @@ export function calculateCelestialEphemeris(
       magnitude: eq.mag,
       color: p.color,
       symbol: p.symbol,
-      extraInfo: `Mag ${eq.mag.toFixed(1)} · Alt ${horiz.altitude >= 0 ? '+' : ''}${horiz.altitude.toFixed(1)}°`,
+      extraInfo: `Mag ${eq.mag.toFixed(1)} · Dist ${eq.distanceAU.toFixed(2)} AU · EclLat ${eq.eclipticLat >= 0 ? '+' : ''}${eq.eclipticLat.toFixed(1)}° · Alt ${horiz.altitude >= 0 ? '+' : ''}${horiz.altitude.toFixed(1)}°`,
     };
   });
 
   // 5. Sun, Moon & Planet 24-Hour Diurnal Trajectory Arcs above 0° True Horizon
   const sunArcPoints: { az: number; alt: number }[] = [];
   const moonArcPoints: { az: number; alt: number }[] = [];
-  const planetArcPoints: Record<'venus' | 'mars' | 'jupiter' | 'saturn', { az: number; alt: number }[]> = {
+  const planetArcPoints: Record<PlanetId, { az: number; alt: number }[]> = {
+    mercury: [],
     venus: [],
     mars: [],
     jupiter: [],
@@ -705,7 +833,7 @@ export function calculateCelestialEphemeris(
       alt: sampleMoonHoriz.altitude,
     });
 
-    // Visible Planets diurnal points (Venus, Mars, Jupiter, Saturn)
+    // Visible Planets diurnal points (Mercury, Venus, Mars, Jupiter, Saturn)
     for (const p of planetDefs) {
       const pEq = getPlanetEquatorial(p.id, sampleJd);
       const pHoriz = equatorialToHorizontal(pEq.ra, pEq.dec, latitude, sampleLst);
@@ -720,7 +848,7 @@ export function calculateCelestialEphemeris(
   const sunTrajectory = buildFullDiurnalTrajectorySegments(sunArcPoints, projectCoord, centerAzimuth);
   const moonTrajectory = buildFullDiurnalTrajectorySegments(moonArcPoints, projectCoord, centerAzimuth);
 
-  // Dynamic Planet Trajectories (Venus, Mars, Jupiter, Saturn)
+  // Dynamic Planet Trajectories (Mercury, Venus, Mars, Jupiter, Saturn)
   const planetTrajectories: PlanetTrajectoryData[] = planetDefs.map((p) => ({
     id: p.id,
     name: p.name,
@@ -729,6 +857,31 @@ export function calculateCelestialEphemeris(
     points: planetArcPoints[p.id],
     segments: buildFullDiurnalTrajectorySegments(planetArcPoints[p.id], projectCoord, centerAzimuth),
   }));
+
+  // 6. Instantaneous Ecliptic Plane Curve across the Sky (beta = 0, lambda from 0 to 360 deg)
+  const eclipticArcPoints: { az: number; alt: number }[] = [];
+  const epsRad = 23.4392911 * DEG2RAD;
+  const sinEps = Math.sin(epsRad);
+  const cosEps = Math.cos(epsRad);
+
+  for (let lambdaDeg = 0; lambdaDeg <= 360; lambdaDeg += 1) {
+    const lambdaRad = lambdaDeg * DEG2RAD;
+    const sinLambda = Math.sin(lambdaRad);
+    const cosLambda = Math.cos(lambdaRad);
+
+    const raRad = Math.atan2(cosEps * sinLambda, cosLambda);
+    const raDeg = ((raRad * RAD2DEG) % 360 + 360) % 360;
+    const decRad = Math.asin(sinEps * sinLambda);
+    const decDeg = decRad * RAD2DEG;
+
+    const horiz = equatorialToHorizontal(raDeg, decDeg, latitude, lst);
+    eclipticArcPoints.push({
+      az: horiz.azimuth,
+      alt: horiz.altitude,
+    });
+  }
+
+  const eclipticSegments = buildFullDiurnalTrajectorySegments(eclipticArcPoints, projectCoord, centerAzimuth);
 
   // 7. Constellation Stick-Figure Connection Lines
   const constellationLines: ConstellationLineSegment[] = [];
@@ -764,6 +917,7 @@ export function calculateCelestialEphemeris(
     sunTrajectory,
     moonTrajectory,
     planetTrajectories,
+    eclipticSegments,
     constellationLines,
     detailedMoon,
   };
